@@ -3,13 +3,13 @@
 
 
 # Name of website
-title: Pierre Clavier
+title: Achille Thin
 
 # Short description of your site
-description: Research Engineer at Sorbonne Universite
+description: PhD Candidate in Machine Learning at Ecole polytechnique
 
 # Your name to show in the footer
-author: Pierre Clavier
+author: Achille Thin
 
 # --- List of links in the navigation bar --- #
 
@@ -17,10 +17,11 @@ navbar-links:
   About Me: "aboutme"
   Research: "research"
   Teaching: "teaching"
+  Education: "education"
   
-  Project:
+#  Project:
     
-    - Alcov2 : http://www.cnrs.fr/fr/alcov2-une-enquete-de-grande-ampleur-pour-letude-de-la-transmission-de-sars-cov2-au-sein-des-foyers
+#    - Alcov2 : http://www.cnrs.fr/fr/alcov2-une-enquete-de-grande-ampleur-pour-letude-de-la-transmission-de-sars-cov2-au-sein-des-foyers
   
 
 # --- Logo --- #
@@ -43,13 +44,13 @@ navbar-links:
 # Uncomment the links you want to show and add your information to each one.
 # If you don't want to show a link to an RSS feed, set rss to "false".
 social-network-links:
-  email: "pierre.clavier@polytechnique.edu"
+  email: "achille.thin@polytechnique.edu"
   
-  github: pierreclavier
+  github: Achillethin
   
   rss: False
 #  reddit: yourname
-  linkedin: pierre-clavier-823171135
+  linkedin: achille-thin
 #  xing: yourname
 #  stackoverflow: "3943160/daattali"
 #  snapchat: deanat78
@@ -64,7 +65,7 @@ social-network-links:
 #  calendly: yourname
 #  mastodon: instance.url/@username
 #  ORCID: your ORCID ID
-  google-scholar: citations?user=-KnIaGsAAAAJ
+  google-scholar: citations?user=1sWyJsMAAAAJ&hl=en&authuser=1
 
 # --- General options --- #
 
@@ -172,7 +173,7 @@ date_format: "%B %-d, %Y"
 # --- You don't need to touch anything below here (but you can if you want) --- #
 
 # Output options (more information on Jekyll's site)
-timezone: "America/Vancouver"
+timezone: "Europe/Paris"
 markdown: kramdown
 highlighter: rouge
 permalink: /:year-:month-:day-:title/
