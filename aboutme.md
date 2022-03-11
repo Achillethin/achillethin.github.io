@@ -5,7 +5,7 @@ subtitle: About me
 show-avatar: False
 ---
 
-<img style="float: right;" src="/assets/img/IMG_0807.HEIC" width="300" hspace="30" vspace="30">
+<img style="float: right;" src="/assets/img/photo.jpg" width="200" hspace="30" vspace="30">
 {: style="text-align: justify"}
 Hello ! I am currently a PhD candidate in Statistics and Machine Learning. I am working at [CMAP](https://portail.polytechnique.edu/cmap/fr/page-daccueil) in [Ecole Polytechnique](https://www.polytechnique.edu/) supervised by Éric Moulines and [Arnaud Doucet](https://www.stats.ox.ac.uk/~doucet/) from Oxford University. 
 {: style="text-align: justify"}
