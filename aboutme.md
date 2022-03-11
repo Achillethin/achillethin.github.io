@@ -14,16 +14,18 @@ You can find a version of my Curriculum Vitae [here.](/assets/img/CV_Achille_Thi
 {: style="text-align: justify"}
 
 
+I am interested in problems at the intersection of mathematics and computation, and in particular between classical statistical and mathematical modeling and Machine Learning tools.
+My PhD focuses on "Novel Variational Methods for Inference and Learning in high dimensions", and especially around Monte Carlo methods, dealing with **Markov chain Monte Carlo**, **Variational Inference**, **generative modeling**. I am also very interested in uncertainty quantification, using **Bayesian inference**.
 
-I am interested in systems at the intersection of mathematics and computation, in having analytical insights on real-world applications, especially Medecine and Biology.
-My current PhD  subject is focused on application of **Reinforcement Learning** for optimisation of medical trajectory to avoid diagnostic wandering in rare diseases. I also have a great interest in:
-- **Robust and Risk-Averse Reinforcement Learning**
-- **Computational Statistics**
-- **Probabilistic Graphical Models.**
  
 {: style="text-align: justify"}
 
-Previously I have worked in a project, [Alcov2](https://www.college-de-france.fr/site/actualites/Alcov2-Enquete-pour-l-etude-de-la-transmission-de-SARS-Cov2-au-sein-des-foyers-francais.htm) on prediction of probability of transmission of Covid 19 into French households under supervision of [Grégory Nuel](http://nuel.perso.math.cnrs.fr/) and [Amaury Lambert](https://www.lpsm.paris/pageperso/amaury.lambert/).
+I am very interested nowadays in real world applications, especially in the agricultural and agronomic fields. My current project ingoing features some crop yield prediction with uncertainty using Bayesian Neural Networks and satellite imaging. Always keen on hearing about opportunities and projects in that respect !
+
+{: style="text-align: justify"}
+
+Apart from that, I play tennis, follow rugby and do a few experiments about cooking, brewing, fermenting or curing anything I can get my hands on ! A related blog page is coming, but I also am open always to discussions about new ideas !
+
 {: style="text-align: justify"}
 
 

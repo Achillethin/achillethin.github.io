@@ -4,24 +4,15 @@ title: Teaching
 show-avatar: True
 ---
 
-### Students 
+I have several experiences as teaching assistant :
 
-**Elie Attian** : Bachelor Thesis : Risk-Averse Reinforcement Learning for medical applications.
+### Ecole Polytechnique (2019-2022)
 
-
-
-I have several experiences as teaching asssitant :
-
-### Ecole Polytechnique (2021-2022)
-
-* Regression Analysis (Master Level)
+* Probability refresher (Master Level, for the X-HEC Data science for Business Master of Science)
+* Statistics (Master Level, for the X-HEC Data science for Business Master of Science)
 * Bachelor Thesis tutor
-* Mathematical Modelling (Bachelor Level)
 
 
-### Université de Paris (2020)
-
-* Mathematical Analysis, 3rd year of Bachelor.
 
 <p>&nbsp;</p>
 
