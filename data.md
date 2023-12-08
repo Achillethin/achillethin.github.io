@@ -26,7 +26,7 @@ Here you can find the data available for the teaching projects:
 ### Code
 
 - [Introduction au modèle linéaire](docs/code/MLG_intro.R)
-- [Régression linéaire simple](docs/slides/MLG_chapter1.pdf)
+- [Régression linéaire simple](docs/code/MLG_chap1.R)
 
 <!---
 - [Régression linéaire multiple](docs/slides/MLG_chapter2.pdf)
