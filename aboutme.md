@@ -7,7 +7,7 @@ show-avatar: False
 
 <img style="float: right;" src="/assets/img/photo.jpg" width="200" hspace="30" vspace="30">
 {: style="text-align: justify"}
-Hello ! I am currently a data scientist at {Genesis}(https:/www.genesis.live/) after graduating as a PhD in Statistics and Machine Learning. Passionate to tackle environmental and agricultural issues, I now model soil health and grade it to ensure we have the best way of using the basis of all life and production! 
+Hello ! I am currently a data scientist at [Genesis](https:/www.genesis.live/) after graduating as a PhD in Statistics and Machine Learning. Passionate to tackle environmental and agricultural issues, I now model soil health and grade it to ensure we have the best way of using the basis of all life and production! 
 Before, I was a Senior Lecturer at AgroParisTech, where I taught statistics (mostly Bayesian) and machine learning (classes at AgroParisTech and university Mohamed VI), and was doing research in generatiove models, self supervised learning, and environmental and ecological modelling (mostly using Bayesian methods, once again !).
 I did my PhD at [CMAP](https://portail.polytechnique.edu/cmap/fr/page-daccueil) in [Ecole Polytechnique](https://www.polytechnique.edu/) supervised by Éric Moulines and [Arnaud Doucet](https://www.stats.ox.ac.uk/~doucet/) from Oxford University. 
 {: style="text-align: justify"}
