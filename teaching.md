@@ -7,7 +7,7 @@ show-avatar: True
 ### Université Dauphine (2023-2024)
 
 This year, I am teaching statistics at Université Paris Dauphine, in the Master Executive – Statistiques & Big data (EMSBD). 
-Material available [here.](/docs/data/){:target="_blank"} or <a href="/data/">here</a>.
+Material available <a href="/data/">here</a>.
 {: style="text-align: justify"}
 
 
