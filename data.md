@@ -18,8 +18,8 @@ Here you can find the data available for the teaching projects:
 - [Introduction au modèle linéaire](docs/slides/MLG_intro.pdf)
 - [Régression linéaire simple](docs/slides/MLG_chapter1.pdf)
 - [Régression linéaire multiple](docs/slides/MLG_chapter2.pdf)
-- [Analyse de la variance à un facteur](docs/slides/MLG_chapter2.pdf)
-- [Analyse de la variance à deux facteurs](docs/slides/MLG_chapter2.pdf)
+- [Analyse de la variance à un facteur](docs/slides/Anova_1facteur.pdf)
+- [Analyse de la variance à deux facteurs](docs/slides/Anova_2facteurs.pdf)
 
 <!---
 -->
