@@ -18,6 +18,8 @@ Here you can find the data available for the teaching projects:
 - [Introduction au modèle linéaire](docs/slides/MLG_intro.pdf)
 - [Régression linéaire simple](docs/slides/MLG_chapter1.pdf)
 - [Régression linéaire multiple](docs/slides/MLG_chapter2.pdf)
+- [Analyse de la variance à un facteur](docs/slides/MLG_chapter2.pdf)
+- [Analyse de la variance à deux facteurs](docs/slides/MLG_chapter2.pdf)
 
 <!---
 -->
@@ -27,6 +29,10 @@ Here you can find the data available for the teaching projects:
 
 - [Introduction au modèle linéaire](docs/code/MLG_intro.R)
 - [Régression linéaire simple](docs/code/MLG_chap1.R)
+- [Régression linéaire multiple](docs/code/MLG_chap2.pdf)
+- [Analyse de la variance à un facteur](docs/code/MLG_chap3_1F.pdf)
+- [Analyse de la variance à deux facteurs](docs/code/MLG_chap3_2F.pdf)
+
 
 <!---
 - [Régression linéaire multiple](docs/slides/MLG_chapter2.pdf)
