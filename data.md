@@ -20,7 +20,7 @@ Here you can find the data available for the teaching projects:
 - [Régression linéaire multiple](docs/slides/MLG_chapter2.pdf)
 - [Analyse de la variance à un facteur](docs/slides/Anova_1facteur.pdf)
 - [Analyse de la covariance](docs/slides/MLG_ANCOVA.pdf)
-- [Autres méthodes de sélection de variable](docs/slides/MLG_chap5.pdf)
+- [Autres méthodes de sélection de variables](docs/slides/MLG_chap5.pdf)
 
 
 ### Project
