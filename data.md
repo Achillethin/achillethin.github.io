@@ -19,8 +19,12 @@ Here you can find the data available for the teaching projects:
 - [Régression linéaire simple](docs/slides/MLG_chapter1.pdf)
 - [Régression linéaire multiple](docs/slides/MLG_chapter2.pdf)
 - [Analyse de la variance à un facteur](docs/slides/Anova_1facteur.pdf)
-- [Analyse de la variance à deux facteurs](docs/slides/Anova_2facteurs.pdf)
+- [Analyse de la covariance](docs/slides/MLG_ANCOVA.pdf)
+- [Autres méthodes de sélection de variable](docs/slides/MLG_project.pdf)
 
+
+### Project
+- [Project EMSBD 2023](docs/slides/MLG_project.pdf)
 <!---
 -->
 
@@ -29,9 +33,10 @@ Here you can find the data available for the teaching projects:
 
 - [Introduction au modèle linéaire](docs/code/MLG_intro.R)
 - [Régression linéaire simple](docs/code/MLG_chap1.R)
-- [Régression linéaire multiple](docs/code/MLG_chap2.pdf)
-- [Analyse de la variance à un facteur](docs/code/MLG_chap3_1F.pdf)
-- [Analyse de la variance à deux facteurs](docs/code/MLG_chap3_2F.pdf)
+- [Régression linéaire multiple](docs/code/MLG_chap2.R)
+- [Analyse de la variance à un facteur](docs/code/MLG_chap3_1F.R)
+- [Analyse de la variance à deux facteurs](docs/code/MLG_chap3_2F.R)
+- [Analyse de la covariance](docs/code/MLG_chap4.R)
 
 
 <!---
