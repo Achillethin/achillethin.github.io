@@ -24,7 +24,7 @@ Here you can find the data available for the teaching projects:
 
 
 ### Project
-- [Project EMSBD 2023](docs/slides/MLG_project.pdf)
+- [Project EMSBD 2025](docs/slides/MLG_project.pdf)
 - [Infos sur le jeu de données cars](docs/data/cars_info.xlsx)
 - [cars_train.csv](docs/data/cars_train.csv)
 - [cars_test.csv](docs/data/cars_test.csv)
