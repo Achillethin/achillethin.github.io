@@ -1,0 +1,6 @@
+# Variante Nestlé / NesGen — dépendances additionnelles par rapport à ../requirements.txt
+# (pas besoin de langchain-anthropic ici, NesgenChatModel remplace ChatAnthropic)
+
+-r ../requirements.txt
+requests>=2.31
+pydantic>=2.0

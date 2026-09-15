@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM Agent Memory — Part 1: Theory</title>
+<link rel="stylesheet" href="agent-memory/deck.css">
+</head>
+<body>
+<div class="deck">
+
+<section class="slide title-slide active">
+  <div class="kicker">Data Engineering &amp; Data Science — Internal Workshop</div>
+  <h1>LLM Agent Memory<br>Foundations &amp; Architectures</h1>
+  <div class="subtitle">Part 1/2 — Theory: from cognitive psychology to LangGraph &amp; DeepAgents</div>
+  <div class="meta">
+    <strong>Target duration:</strong> ~50 min + questions &nbsp;·&nbsp;
+    <strong>Session 2:</strong> hands-on implementation (LangGraph, DeepAgents, notebook)<br>
+    September 2026
+  </div>
+  <p class="dim small"><a href="agent-memory-part1-theory.html">Version française</a></p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Agenda</div>
+  <h1>Two sessions, one thread</h1>
+  <div class="grid-2">
+    <div class="card">
+      <h3>Session 1 — Theory (today)</h3>
+      <ul>
+        <li>Why memory is a <em>real</em> engineering problem, not a detail</li>
+        <li>The reference taxonomy (CoALA): working / long-term memory</li>
+        <li>How we retrieve, score, summarize, forget — with a bit of math</li>
+        <li>MemGPT / Letta, and modern "context engineering" (Anthropic)</li>
+        <li>A comparison of the major families of approaches</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Session 2 — Practice</h3>
+      <ul>
+        <li>Short-term memory in <span class="mono">LangGraph</span> (checkpointer, threads)</li>
+        <li>Long-term memory (<span class="mono">Store</span>, namespaces, semantic search)</li>
+        <li>Agent-driven memory (<span class="mono">langmem</span>)</li>
+        <li><span class="mono">DeepAgents</span>: sub-agents, virtual filesystem, backends</li>
+        <li>Live notebook demo + exercises for the team</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Motivation</div>
+  <h1>Why this topic, and why now</h1>
+  <ul>
+    <li>The agents we build today no longer fit in <strong>a single LLM call</strong>: multi-step research, coding agents, assistants that persist across sessions.</li>
+    <li>The "Claude Code" / <span class="mono">DeepAgents</span> style — planning, sub-agents, virtual filesystems — has become the reference pattern for "long-running" agents in 2025-2026.</li>
+    <li>Our data pipelines (ingestion, exploration, automated reporting) increasingly look like these agents: <strong>the question "where does the state live, and for how long?" becomes central</strong>.</li>
+  </ul>
+  <div class="callout">
+    Goal of this session: give you a <strong>precise, shared vocabulary</strong> for talking about agent memory, before we dive into code in session 2.
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">The two tools we'll use</div>
+  <h1>LangGraph &amp; DeepAgents, in one minute</h1>
+  <div class="grid-2">
+    <div class="card">
+      <h3>LangGraph</h3>
+      <p><strong>LangChain</strong>'s agent orchestration framework: an agent is modeled as a <strong>state graph</strong> (nodes = steps, edges = transitions), with native support for persisting that state.</p>
+    </div>
+    <div class="card">
+      <h3>DeepAgents</h3>
+      <p>A "batteries-included" <strong>agent harness</strong> built <em>on top of</em> LangGraph, explicitly inspired by <strong>Claude Code</strong>'s behavior: planning, sub-agents, virtual filesystem — shipped by default rather than something you code yourself.</p>
+    </div>
+  </div>
+  <div class="callout">Why this matters for this talk: both treat memory as a <strong>first-class citizen</strong> — that's why they run as a thread through all of Session 1, even before we revisit them in detail at the end.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">The central problem</div>
+  <h1>The context window is finite</h1>
+  <p>Everything an LLM "knows" at a given instant <em>t</em> fits inside a fixed token budget, shared between:</p>
+  <div class="math-box">system prompt + tool schemas + conversation history + retrieved documents &nbsp;&le;&nbsp; N tokens</div>
+  <p class="small dim">N = the context window size of the model in use — fixed for a given model (e.g. 200k tokens for Claude), but never infinite.</p>
+  <ul>
+    <li>The longer the conversation / task runs, the more this budget fills up — you have to choose what to keep.</li>
+    <li>And it isn't just a matter of <em>space</em>: the <a href="https://www.trychroma.com/research/context-rot" target="_blank">"Context Rot"</a> study by Chroma (2025) shows that response quality across 18 frontier models <strong>degrades with context length</strong>, sometimes well before the nominal limit — even on tasks that don't require "remembering everything".</li>
+  </ul>
+  <div class="callout warn">"Stuffing everything into the context" is not a free memory strategy: it's a choice with a quality cost, not just a latency/$ cost.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Definition</div>
+  <h1>What is agent "memory"?</h1>
+  <div class="callout good">
+    An agent's memory is <strong>any mechanism that lets information persist beyond a single pass through the model's context</strong> — and brings it back at the right moment.
+  </div>
+  <ul>
+    <li>It is <strong>not</strong> the model's weights (that's what it learned during training — implicit, not modifiable at inference time).</li>
+    <li>It's a matter of <strong>software engineering</strong>: where to store, how to index, when to write, when to re-read, when to forget.</li>
+    <li>The academic field has a name for the reference architecture: <strong>CoALA</strong>.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Reference framework</div>
+  <h1>CoALA — Cognitive Architectures for Language Agents</h1>
+  <p class="dim">Sumers, Yao, Narasimhan &amp; Griffiths — <a href="https://arxiv.org/abs/2309.02427" target="_blank">arXiv:2309.02427</a>, TMLR 2024</p>
+  <p>This is the taxonomy that nearly all modern frameworks — LangGraph and DeepAgents included — adopt (implicitly or explicitly).</p>
+  <div class="grid-2">
+    <div class="card">
+      <h3><span class="badge short">Short-term</span> Working memory</h3>
+      <p>The <em>active</em> content of the current decision cycle: what is literally in the context window at instant <em>t</em>. Volatile, not persisted by itself.</p>
+    </div>
+    <div class="card">
+      <h3><span class="badge long">Long-term</span> Long-term memory</h3>
+      <p>What survives beyond a single cycle: three families, borrowed from cognitive psychology (next slide).</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">CoALA — Long-term memory</div>
+  <h1>Three families of long-term memory</h1>
+  <div class="grid-3">
+    <div class="card">
+      <h3>Episodic</h3>
+      <p>Traces of past events: <em>"at turn 12, the user said X, the agent did Y"</em>. Autobiographical memory.</p>
+    </div>
+    <div class="card">
+      <h3>Semantic</h3>
+      <p>Factual knowledge, generalized from experience: <em>"the user's manager is named Priya"</em>. Facts, ontology.</p>
+    </div>
+    <div class="card">
+      <h3>Procedural</h3>
+      <p>The <em>how-to</em>: skills, rules, learned behaviors — inside the model's weights (implicit), or explicit (prompt, code, playbook).</p>
+    </div>
+  </div>
+  <div class="callout">You'll see this same three-way split reappear, under other names, in LangGraph (Store) and DeepAgents (filesystem + skills).</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">CoALA — the loop</div>
+  <h1>The decision loop: 4 interacting actions</h1>
+  <div class="diagram">
+    <svg viewBox="0 0 780 300" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="d1-arrow-neutral" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0L10,5L0,10z" fill="#9fb0d0"/>
+        </marker>
+        <marker id="d1-arrow-warn" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0L10,5L0,10z" fill="#f59e0b"/>
+        </marker>
+      </defs>
+      <rect x="250" y="45" width="200" height="60" rx="9" fill="#16203a" stroke="#38bdf8" stroke-width="1.8"/>
+      <text x="350" y="72" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#e7ecf7" font-weight="600">Working memory</text>
+      <text x="350" y="90" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">active, volatile</text>
+
+      <rect x="540" y="35" width="220" height="80" rx="9" fill="#16203a" stroke="#34d399" stroke-width="1.8"/>
+      <text x="650" y="63" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#e7ecf7" font-weight="600">Long-term memory</text>
+      <text x="650" y="82" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">episodic / semantic</text>
+      <text x="650" y="97" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">/ procedural</text>
+
+      <rect x="250" y="220" width="200" height="60" rx="9" fill="#16203a" stroke="#f59e0b" stroke-width="1.8"/>
+      <text x="350" y="247" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#e7ecf7" font-weight="600">Outside world</text>
+      <text x="350" y="265" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">tools, environment</text>
+
+      <path d="M300,45 C300,18 400,18 400,45" fill="none" stroke="#9fb0d0" stroke-width="1.8" marker-end="url(#d1-arrow-neutral)"/>
+      <text x="350" y="10" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">1. Reasoning</text>
+
+      <line x1="540" y1="65" x2="452" y2="65" stroke="#9fb0d0" stroke-width="1.8" marker-end="url(#d1-arrow-neutral)"/>
+      <text x="496" y="58" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">2. Retrieval</text>
+
+      <line x1="452" y1="90" x2="540" y2="90" stroke="#9fb0d0" stroke-width="1.8" marker-end="url(#d1-arrow-neutral)"/>
+      <text x="496" y="106" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">3. Learning</text>
+
+      <line x1="350" y1="105" x2="350" y2="220" stroke="#f59e0b" stroke-width="1.8" marker-start="url(#d1-arrow-warn)" marker-end="url(#d1-arrow-warn)"/>
+      <text x="365" y="166" text-anchor="start" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#f59e0b">4. Grounding</text>
+    </svg>
+  </div>
+  <div class="timeline">
+    <div class="step"><div class="dot">1</div><div class="txt"><strong>Reasoning</strong> — new content in working memory.</div></div>
+    <div class="step"><div class="dot">2</div><div class="txt"><strong>Retrieval</strong> — long-term memory &#8594; working memory.</div></div>
+    <div class="step"><div class="dot">3</div><div class="txt"><strong>Learning</strong> — working memory &#8594; long-term memory.</div></div>
+    <div class="step"><div class="dot">4</div><div class="txt"><strong>Grounding</strong> — tool calls, environment (outside world).</div></div>
+  </div>
+  <p class="dim small">It's this <em>retrieval ↔ learning</em> cycle around a limited working memory that is, ultimately, "the" engineering problem of agent memory.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Retrieval</div>
+  <h1>How memory gets retrieved</h1>
+  <ul>
+    <li><strong>Rule-based</strong>: explicit filters (by user, by date, by type) — simple, predictable, but rigid.</li>
+    <li><strong>Sparse search</strong>: keywords / BM25, which combines three signals:
+      <ul>
+        <li>term-frequency saturation — a word repeated 10× doesn't count 10× more,</li>
+        <li>IDF (a term's overall rarity in the corpus) — the rarer a word, the more informative it is,</li>
+        <li>document-length normalization — so long texts aren't favored.</li>
+      </ul>
+      Result: good exact recall, weak on meaning.
+    </li>
+    <li><strong>Dense search (embeddings)</strong>: each memory is encoded as a vector at write time, the query as a vector at read time, then ranked by similarity. This is today's dominant mechanism — <strong>it's RAG applied to the agent's own past</strong>, not just to external documents.</li>
+  </ul>
+  <div class="diagram">
+    <svg viewBox="0 0 920 215" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="d3-arrow-neutral" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0L10,5L0,10z" fill="#9fb0d0"/>
+        </marker>
+        <marker id="d3-arrow-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0L10,5L0,10z" fill="#38bdf8"/>
+        </marker>
+      </defs>
+      <text x="20" y="20" text-anchor="start" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0" font-style="italic">write (once per memory)</text>
+      <rect x="20" y="35" width="140" height="50" rx="8" fill="#16203a" stroke="#223258" stroke-width="1.5"/>
+      <text x="90" y="65" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#e7ecf7">Memory (text)</text>
+
+      <line x1="160" y1="60" x2="198" y2="60" stroke="#9fb0d0" stroke-width="1.8" marker-end="url(#d3-arrow-neutral)"/>
+      <text x="179" y="50" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10" fill="#9fb0d0">embed()</text>
+
+      <rect x="200" y="35" width="110" height="50" rx="8" fill="#16203a" stroke="#22d3ee" stroke-width="1.8"/>
+      <text x="255" y="65" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#e7ecf7">vector</text>
+
+      <line x1="310" y1="60" x2="558" y2="90" stroke="#9fb0d0" stroke-width="1.8" marker-end="url(#d3-arrow-neutral)"/>
+
+      <text x="20" y="128" text-anchor="start" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0" font-style="italic">read (at every query)</text>
+      <rect x="20" y="140" width="140" height="50" rx="8" fill="#16203a" stroke="#223258" stroke-width="1.5"/>
+      <text x="90" y="170" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#e7ecf7">Query (text)</text>
+
+      <line x1="160" y1="165" x2="198" y2="165" stroke="#9fb0d0" stroke-width="1.8" marker-end="url(#d3-arrow-neutral)"/>
+      <text x="179" y="155" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10" fill="#9fb0d0">embed()</text>
+
+      <rect x="200" y="140" width="110" height="50" rx="8" fill="#16203a" stroke="#22d3ee" stroke-width="1.8"/>
+      <text x="255" y="170" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#e7ecf7">vector</text>
+
+      <line x1="310" y1="165" x2="558" y2="130" stroke="#9fb0d0" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#d3-arrow-neutral)"/>
+      <text x="430" y="205" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10" fill="#9fb0d0">cosine, top-k</text>
+
+      <rect x="560" y="65" width="150" height="90" rx="9" fill="#16203a" stroke="#34d399" stroke-width="1.8"/>
+      <text x="635" y="115" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#e7ecf7" font-weight="600">Long-term store</text>
+
+      <line x1="710" y1="110" x2="758" y2="110" stroke="#38bdf8" stroke-width="1.8" marker-end="url(#d3-arrow-accent)"/>
+      <text x="734" y="100" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10" fill="#9fb0d0">top-k</text>
+
+      <rect x="760" y="65" width="140" height="90" rx="9" fill="#16203a" stroke="#38bdf8" stroke-width="1.8"/>
+      <text x="830" y="115" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.5" fill="#e7ecf7" font-weight="600">Working memory</text>
+    </svg>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">A bit of math (1/3)</div>
+  <h1>Cosine similarity</h1>
+  <p>The one formula you really need to understand dense search: it measures the angle between two vectors, not their magnitude.</p>
+  <div class="math-box">cos(u, v) = (u · v) / (&#8214;u&#8214; &middot; &#8214;v&#8214;)</div>
+  <ul>
+    <li><span class="mono">u</span>, <span class="mono">v</span> = the embedding vectors of the memory and the query.</li>
+    <li><span class="mono">u · v</span> = their dot product.</li>
+    <li><span class="mono">&#8214;u&#8214;</span> = the vector's norm (length).</li>
+    <li>Result between -1 and 1 (in practice, often between 0 and 1 for text embeddings).</li>
+    <li>1 = same direction (same meaning); 0 = no relation.</li>
+    <li>Each memory is embedded <em>once</em>, at write time — only the query is re-embedded at each read.</li>
+  </ul>
+  <div class="callout math">That's all the math you need to remember for 90% of vector memory systems in production.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">A bit of math (2/3)</div>
+  <h1>The retrieval score from "Generative Agents"</h1>
+  <p class="dim">Park, O'Brien, Cai, Morris, Liang &amp; Bernstein — Stanford/Google, UIST 2023 — <a href="https://arxiv.org/abs/2304.03442" target="_blank">arXiv:2304.03442</a></p>
+  <p>Each memory is a timestamped event in a <em>memory stream</em>. To decide what to recall, three signals are combined:</p>
+  <div class="math-box">score = &alpha;<sub>r</sub>&middot;recency + &alpha;<sub>i</sub>&middot;importance + &alpha;<sub>v</sub>&middot;relevance</div>
+  <ul class="small">
+    <li><strong>Recency</strong> — how recently the memory was accessed (details next slide).</li>
+    <li><strong>Importance</strong> — the significance the LLM itself assigned to the memory at write time (details next slide).</li>
+    <li><strong>Relevance</strong> — the cosine similarity between the memory and the current situation (previous slide).</li>
+  </ul>
+  <p class="small dim">(in the paper, all three &alpha; = 1; each term is min-max normalized to [0,1] before summing, so none dominates purely by scale)</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">A bit of math (3/3)</div>
+  <h1>Recency: an exponential decay</h1>
+  <div class="math-box">recency = &gamma;<sup>&Delta;t</sup> &nbsp;&nbsp;(&gamma; = 0.995, &Delta;t in "hours" since last access)</div>
+  <ul>
+    <li>A memory not accessed for ~140 simulated "hours" has already lost about half its weight.</li>
+    <li>Every <em>read</em> of a memory resets its clock to zero — like an LRU cache.</li>
+  </ul>
+  <h2>Importance &amp; relevance</h2>
+  <ul>
+    <li><strong>Importance</strong>: rated 1–10 <em>at write time</em>, by literally asking the LLM: <em>"how significant is this event?"</em> ("brushing one's teeth" → 2, "a breakup" → 8).</li>
+    <li><strong>Relevance</strong>: cosine similarity (previous slide) between the memory and the current situation.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Consolidation</div>
+  <h1>Reflection: from episodic to semantic</h1>
+  <ul>
+    <li>Without consolidation, long-term memory is just a <strong>raw log that keeps growing forever</strong> — increasingly unusable.</li>
+    <li><strong>Reflection</strong> (Generative Agents): triggered when the sum of recent importance scores exceeds a threshold (150 in the paper). The LLM receives the ~100 most recent events and generates 3 high-level questions, then synthesizes <strong>insights that cite their sources</strong>.</li>
+    <li>Result: a <strong>tree of reflections</strong> — the leaves are raw observations, the internal nodes are increasingly general abstractions (reflections can reflect on other reflections).</li>
+  </ul>
+  <div class="callout">This is the direct conceptual ancestor of the "memory consolidation" / hierarchical summarization found in nearly every modern framework (LangGraph included, session 2).</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Since the 2023-2025 papers cited above</div>
+  <h1>Temporal knowledge graphs: memory that invalidates, not overwrites</h1>
+  <p class="dim">Rasmussen et al. (Zep), <em>A Temporal Knowledge Graph Architecture for Agent Memory</em>, 2025 — <a href="https://arxiv.org/abs/2501.13956" target="_blank">arXiv:2501.13956</a></p>
+  <ul>
+    <li>Reflection (previous slide) never answers: what happens when an old insight turns out to be <em>wrong</em>? A flat vector store just leaves the stale fact sitting there, competing on cosine similarity with the correction.</li>
+    <li><strong>Graphiti</strong> (Zep's open-source engine) stores memory as a graph where every edge carries a <span class="mono">(valid_at, invalid_at)</span> pair — old facts are marked invalid with provenance, never silently deleted or silently contradicted.</li>
+    <li>Maps onto CoALA cleanly: episodic nodes &asymp; episodic memory, entities/facts &asymp; semantic memory — the new part is the bi-temporal validity CoALA doesn't model.</li>
+  </ul>
+  <div class="callout warn">Benchmark caveat: LoCoMo leaderboard numbers for Mem0/Zep/others are self-reported under different eval setups and are not directly comparable — treat any single "SOTA" claim in this space with suspicion.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">An alternative architecture</div>
+  <h1>MemGPT: the agent as an operating system</h1>
+  <p class="dim">Packer, Fang, Patil, Lin, Wooders &amp; Gonzalez (UC Berkeley) — <a href="https://arxiv.org/abs/2310.08560" target="_blank">arXiv:2310.08560</a></p>
+  <div class="diagram">
+    <svg viewBox="0 0 820 300" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="d2-arrow-neutral" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0L10,5L0,10z" fill="#9fb0d0"/>
+        </marker>
+        <marker id="d2-arrow-good" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0L10,5L0,10z" fill="#34d399"/>
+        </marker>
+      </defs>
+      <rect x="20" y="20" width="330" height="260" rx="10" fill="#16203a" stroke="#38bdf8" stroke-width="1.8"/>
+      <text x="185" y="45" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#e7ecf7" font-weight="600">Main context (&#8776; RAM)</text>
+
+      <rect x="45" y="65" width="280" height="65" rx="8" fill="#111a2e" stroke="#223258" stroke-width="1.5"/>
+      <text x="185" y="103" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#e7ecf7">LLM</text>
+
+      <rect x="45" y="150" width="280" height="110" rx="8" fill="#111a2e" stroke="#223258" stroke-width="1.5"/>
+      <text x="185" y="198" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#e7ecf7">core memory</text>
+      <text x="185" y="216" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">(editable)</text>
+
+      <rect x="470" y="20" width="330" height="260" rx="10" fill="#16203a" stroke="#34d399" stroke-width="1.8"/>
+      <text x="635" y="45" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#e7ecf7" font-weight="600">External context (&#8776; disk)</text>
+
+      <rect x="495" y="65" width="280" height="75" rx="8" fill="#111a2e" stroke="#223258" stroke-width="1.5"/>
+      <text x="635" y="98" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#e7ecf7">archival memory</text>
+      <text x="635" y="116" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">(embeddings)</text>
+
+      <rect x="495" y="155" width="280" height="105" rx="8" fill="#111a2e" stroke="#223258" stroke-width="1.5"/>
+      <text x="635" y="198" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#e7ecf7">recall memory</text>
+      <text x="635" y="216" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">(raw history)</text>
+
+      <line x1="410" y1="10" x2="410" y2="290" stroke="#9fb0d0" stroke-width="1.5" stroke-dasharray="5 5"/>
+
+      <line x1="185" y1="130" x2="185" y2="150" stroke="#9fb0d0" stroke-width="1.8" marker-start="url(#d2-arrow-neutral)" marker-end="url(#d2-arrow-neutral)"/>
+      <text x="200" y="144" text-anchor="start" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" fill="#9fb0d0">core_memory_append / _replace</text>
+
+      <line x1="325" y1="95" x2="495" y2="95" stroke="#34d399" stroke-width="1.8" marker-start="url(#d2-arrow-good)" marker-end="url(#d2-arrow-good)"/>
+      <text x="410" y="76" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" fill="#9fb0d0">archival_memory_search</text>
+      <text x="410" y="88" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" fill="#9fb0d0">/ _insert</text>
+
+      <line x1="325" y1="205" x2="495" y2="205" stroke="#9fb0d0" stroke-width="1.8" marker-end="url(#d2-arrow-neutral)"/>
+      <text x="410" y="222" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" fill="#9fb0d0">conversation_search</text>
+    </svg>
+  </div>
+  <div class="grid-2">
+    <div class="card">
+      <h3>Main context (≈ RAM)</h3>
+      <p>What fits in the model's window: system instructions, a window of recent messages, and blocks of <strong>"core memory"</strong> editable by the model itself.</p>
+    </div>
+    <div class="card">
+      <h3>External context (≈ disk)</h3>
+      <p>Everything else, outside the window: <strong>archival memory</strong> (archived memory, facts/documents searched via embeddings) and <strong>recall memory</strong> (complete raw, searchable history).</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">MemGPT — mechanics</div>
+  <h1>The model manages its own memory, via tools</h1>
+  <ul>
+    <li>The LLM decides <strong>on its own</strong>, through explicit function calls, what should stay in RAM or be paged out: <span class="mono">core_memory_append</span>, <span class="mono">core_memory_replace</span>, <span class="mono">archival_memory_search</span>, <span class="mono">archival_memory_insert</span>, <span class="mono">conversation_search</span>.</li>
+    <li>Eviction isn't a background daemon: when main context approaches its token budget, the system injects a <strong>memory-pressure warning</strong> into the conversation itself, and the LLM decides what to evict via a function call — self-regulation, not garbage collection.</li>
+    <li><strong>MemGPT → Letta (2026)</strong>: the name "MemGPT" today mostly refers to the <em>design pattern</em>; <strong>Letta</strong> is the maintained open-source framework/product (<span class="mono">letta-ai/letta</span>). 2026 addition: "Context Repositories", a git-like versioned memory for coding agents.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Comparison</div>
+  <h1>Five families, one spectrum</h1>
+  <table class="cmp">
+    <tr><th>Approach</th><th>Complexity</th><th>Latency/cost</th><th>Reliability</th><th>Good for</th></tr>
+    <tr><td>Raw context (stuff everything)</td><td>None</td><td>Grows with history</td><td class="bad">Degrades (Context Rot)</td><td>Very short prototypes</td></tr>
+    <tr><td>Memory RAG (embeddings)</td><td>Medium</td><td>Low per turn</td><td>Good, but recall silently incomplete</td><td>Multi-session personalization</td></tr>
+    <tr><td>MemGPT / Letta (OS-style paging)</td><td>High</td><td>Extra tool calls</td><td>Depends on the model's self-discipline</td><td>Long <em>and</em> multi-session runs</td></tr>
+    <tr><td>LangGraph Store</td><td>Low if already on LangGraph</td><td>Cheap lookup</td><td class="good">High, explicit, testable</td><td>Per-user/org personalization</td></tr>
+    <tr><td>DeepAgents (filesystem + sub-agents)</td><td>Medium (opinionated harness)</td><td>More LLM calls, but smaller parent context</td><td class="good">Strong for long single-session tasks</td><td>"Long-task" agents (research, code)</td></tr>
+    <tr><td>Anthropic memory tool (client-owned files)</td><td>Low</td><td>Extra tool calls, cheap</td><td class="good">High — you own storage &amp; validation</td><td>Multi-session agent progress, without adopting a framework</td></tr>
+  </table>
+  <p class="small dim">These approaches combine more than they compete — DeepAgents, for example, builds directly on LangGraph's Store (session 2).</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">The bridge to modern practice</div>
+  <h1>"Context engineering": Anthropic's vocabulary</h1>
+  <p>Anthropic formalizes context as a <strong>finite resource with diminishing returns</strong> — and names 4 techniques that show up, productized, in DeepAgents.</p>
+  <p class="small dim">"Effective context engineering for AI agents" — anthropic.com/engineering</p>
+</section>
+
+<section class="slide">
+  <h1>The 4 context engineering techniques</h1>
+  <div class="grid-2">
+    <div class="card">
+      <h3>1. Compaction</h3>
+      <p>Summarize a conversation approaching the context limit, then continue with the summary (+ the most recently accessed files).</p>
+    </div>
+    <div class="card">
+      <h3>2. Structured note-taking</h3>
+      <p>A persistent notes file <em>outside</em> the context window, to survive a reset and pick back up where things left off.</p>
+    </div>
+    <div class="card">
+      <h3>3. Multi-agent architectures</h3>
+      <p>An "orchestrator" agent synthesizes; specialized sub-agents work with their <strong>own</strong>, clean, isolated context window.</p>
+    </div>
+    <div class="card">
+      <h3>4. Just-in-time retrieval</h3>
+      <p>Keep lightweight references (paths, identifiers) rather than the full content, and only load it when it's actually needed.</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Anthropic, concretely</div>
+  <h1>The memory tool: a real mechanism, not just a name</h1>
+  <p>Since <strong>September 2025</strong>, Anthropic ships a concrete answer to "structured note-taking": a <span class="mono">memory</span> tool Claude can call directly, no framework required.</p>
+  <div class="grid-2">
+    <div class="card">
+      <h3>Six commands over <span class="mono">/memories</span></h3>
+      <p><span class="mono">view</span>, <span class="mono">create</span>, <span class="mono">str_replace</span>, <span class="mono">insert</span>, <span class="mono">delete</span>, <span class="mono">rename</span> — the same primitives as a text editor, scoped to one directory.</p>
+    </div>
+    <div class="card">
+      <h3>Client-side by design</h3>
+      <p>Claude only <em>requests</em> file operations; <strong>your application executes them</strong> against storage you own (disk, DB, S3 — SDKs ship a local-filesystem helper). Anthropic never sees or stores the files.</p>
+    </div>
+  </div>
+  <div class="callout good">Measured impact (Anthropic's own eval): <strong>+29%</strong> from context editing alone, <strong>+39%</strong> combined with the memory tool, and an <strong>84% token reduction</strong> in a 100-turn web-search task — this is the same "compaction + notes outside the window" idea from two slides ago, now with a number attached.</div>
+  <p class="small dim">anthropic.com/news/context-management &middot; platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Don't conflate these three things</div>
+  <h1>Memory tool vs. Claude.ai memory vs. ChatGPT "Dreaming"</h1>
+  <table class="cmp">
+    <tr><th>What</th><th>Who stores it</th><th>Who decides what's written</th><th>For</th></tr>
+    <tr><td>API <span class="mono">memory</span> tool</td><td class="good">You (client-side)</td><td>Claude requests, your app can validate/reject</td><td>Engineers building agents</td></tr>
+    <tr><td>Claude.ai "Memory" (Topics)</td><td>Anthropic-hosted</td><td>Automatic, user can view/edit/delete per topic</td><td>End users chatting with Claude</td></tr>
+    <tr><td>ChatGPT "Dreaming" (OpenAI, 2026)</td><td>OpenAI-hosted</td><td class="bad">Fully automatic — rewrites entries without being asked</td><td>End users, less transparent by design</td></tr>
+  </table>
+  <div class="callout warn">Anthropic's explicit design choice is the opposite of "Dreaming": Claude tells you when it uses a memory and asks before writing sensitive information. That's a deliberate transparency trade-off, not a capability gap.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Why it works</div>
+  <h1>It's not just intuition — it's measured</h1>
+  <p>The <a href="https://www.trychroma.com/research/context-rot" target="_blank">Context Rot</a> study (Chroma, 2025), across 18 frontier models, shows:</p>
+  <ul>
+    <li>It's not only about length (as noted in the intro): <strong>how the context is organized matters too</strong>.</li>
+    <li>On certain tasks, models do <strong>better</strong> on a long but disordered context than on a long, logically coherent one — a sign that "having everything at hand" isn't cognitively neutral for the model.</li>
+  </ul>
+  <div class="callout warn">Practical conclusion: compacting, isolating, and retrieving on demand isn't a cost optimization — it's also a <strong>quality</strong> optimization.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Transition</div>
+  <h1>Where LangGraph and DeepAgents fit</h1>
+  <div class="diagram">
+    <svg viewBox="0 0 820 355" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="d4-arrow-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0L10,5L0,10z" fill="#38bdf8"/>
+        </marker>
+        <marker id="d4-arrow-good" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0L10,5L0,10z" fill="#34d399"/>
+        </marker>
+        <marker id="d4-arrow-warn" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0L10,5L0,10z" fill="#f59e0b"/>
+        </marker>
+      </defs>
+      <text x="120" y="28" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0" font-style="italic">CoALA (Session 1)</text>
+      <rect x="20" y="40" width="200" height="70" rx="9" fill="#16203a" stroke="#38bdf8" stroke-width="1.8"/>
+      <text x="120" y="80" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#e7ecf7" font-weight="600">Working memory</text>
+
+      <rect x="20" y="180" width="200" height="70" rx="9" fill="#16203a" stroke="#34d399" stroke-width="1.8"/>
+      <text x="120" y="220" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#e7ecf7" font-weight="600">Long-term memory</text>
+
+      <line x1="220" y1="75" x2="418" y2="75" stroke="#38bdf8" stroke-width="1.8" marker-end="url(#d4-arrow-accent)"/>
+      <line x1="220" y1="215" x2="418" y2="215" stroke="#34d399" stroke-width="1.8" marker-end="url(#d4-arrow-good)"/>
+
+      <rect x="390" y="15" width="310" height="270" rx="12" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="6 4"/>
+      <text x="545" y="38" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#f59e0b" font-weight="700">DeepAgents</text>
+      <text x="545" y="54" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10" fill="#9fb0d0">(reuses LangGraph primitives)</text>
+
+      <rect x="420" y="40" width="240" height="70" rx="9" fill="#16203a" stroke="#38bdf8" stroke-width="1.8"/>
+      <text x="540" y="70" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#e7ecf7" font-weight="600">Checkpointer</text>
+      <text x="540" y="88" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">+ thread_id</text>
+
+      <rect x="420" y="180" width="240" height="70" rx="9" fill="#16203a" stroke="#34d399" stroke-width="1.8"/>
+      <text x="540" y="210" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#e7ecf7" font-weight="600">Namespaced Store</text>
+      <text x="540" y="228" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#9fb0d0">semantic search</text>
+
+      <line x1="545" y1="285" x2="545" y2="305" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#d4-arrow-warn)"/>
+      <text x="545" y="322" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#f59e0b">sub-agents &#8594; isolation</text>
+      <text x="545" y="338" text-anchor="middle" font-family="Inter, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#f59e0b">virtual filesystem &#8594; offloading</text>
+    </svg>
+  </div>
+  <p class="dim small">DeepAgents is not a competitor to LangGraph: it's an opinionated layer <em>on top of</em> it — its own contribution is the filesystem metaphor + sub-agents, not a new persistence mechanism.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Summary</div>
+  <h1>What to remember before session 2</h1>
+  <ul>
+    <li>Agent memory = an engineering problem around a <strong>finite context window</strong>, not an implementation detail.</li>
+    <li>CoALA taxonomy: <strong>working memory</strong> (active, volatile) vs <strong>long-term memory</strong> (episodic / semantic / procedural).</li>
+    <li>Retrieval = search (often via embeddings/cosine), possibly weighted by recency + importance + relevance.</li>
+    <li>Without consolidation (reflection), long-term memory becomes an unusable raw log.</li>
+    <li>Two dominant implementation philosophies in 2026: <strong>MemGPT/Letta</strong> (the model manages its own memory via tools) and <strong>LangGraph/DeepAgents</strong> (the engineer explicitly structures checkpointer / Store / filesystem / sub-agents).</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Glossary (1/2)</div>
+  <h1>Agent / LLM vocabulary</h1>
+  <table class="cmp">
+    <tr><th>Term</th><th>Definition</th></tr>
+    <tr><td class="mono">Framework</td><td>A software library that imposes structure: you write your code <em>inside</em> the rules it defines — as opposed to a plain library you simply call from your own code.</td></tr>
+    <tr><td class="mono">Harness (agent harness)</td><td>The code wrapped around an LLM to turn it into a full agent: the decision loop, tool handling, memory and context management — the LLM alone doesn't know how to loop or call tools by itself.</td></tr>
+    <tr><td class="mono">Opinionated</td><td>Imposing default design choices rather than leaving everything configurable (the opposite of "unopinionated"/neutral) — a trade-off between getting started fast and staying flexible.</td></tr>
+    <tr><td class="mono">Batteries-included</td><td>Shipped with everything needed to be useful right away, without having to assemble third-party pieces yourself (a phrase borrowed from Python: "batteries included").</td></tr>
+    <tr><td class="mono">Model-agnostic</td><td>Works with any underlying LLM (Claude, GPT, ...) without being tightly coupled to one vendor.</td></tr>
+    <tr><td class="mono">Token</td><td>The unit of text an LLM processes (roughly a word or word-fragment) — it's the unit the context window is measured in.</td></tr>
+    <tr><td class="mono">Embedding</td><td>A numeric vector representing the "meaning" of a piece of text, produced by a dedicated model; texts that are close in meaning have vectors that are close together (see cosine similarity).</td></tr>
+    <tr><td class="mono">RAG</td><td>Retrieval-Augmented Generation: injecting relevant documents fetched dynamically into the prompt, instead of relying only on what the model memorized during training.</td></tr>
+  </table>
+</section>
+
+<section class="slide">
+  <div class="kicker">Glossary (2/2)</div>
+  <h1>LangGraph / DeepAgents vocabulary</h1>
+  <table class="cmp">
+    <tr><th>Term</th><th>Definition</th></tr>
+    <tr><td class="mono">Checkpointer</td><td>The LangGraph component that saves a graph's state at every step so it can be resumed later (= short-term memory).</td></tr>
+    <tr><td class="mono">Store</td><td>LangGraph's namespaced key/value storage component, independent of threads (= long-term memory).</td></tr>
+    <tr><td class="mono">Backend</td><td>In DeepAgents, the system that decides where virtual files actually live (ephemeral state, a persistent Store, disk...); more generally, the part of a system handling storage/processing, invisible from the user-facing side.</td></tr>
+    <tr><td class="mono">Grounding</td><td>An agent acting on / perceiving the real world (tool calls, environment), as opposed to pure internal reasoning.</td></tr>
+    <tr><td class="mono">Context engineering</td><td>The discipline (named by Anthropic) of actively managing what goes into an LLM's context window, rather than dumping everything available into it.</td></tr>
+    <tr><td class="mono">Offloading</td><td>Moving information out of the active context window (e.g. to a file) to free up token budget, to be re-read later only if actually needed.</td></tr>
+    <tr><td class="mono">Sub-agent (quarantine)</td><td>A helper agent running in its own isolated context window; only its final result "crosses over" to the parent agent — intermediate noise never pollutes the parent's context (hence "quarantine").</td></tr>
+  </table>
+</section>
+
+<section class="slide">
+  <div class="kicker">Bibliography (1/2)</div>
+  <h1>Academic foundations</h1>
+  <div class="refs">
+    <p>
+    Sumers, Yao, Narasimhan &amp; Griffiths, <em>Cognitive Architectures for Language Agents</em> (CoALA), TMLR 2024 — <a href="https://arxiv.org/abs/2309.02427" target="_blank">arXiv:2309.02427</a><br>
+    Park, O'Brien, Cai, Morris, Liang &amp; Bernstein, <em>Generative Agents: Interactive Simulacra of Human Behavior</em>, UIST 2023 — <a href="https://arxiv.org/abs/2304.03442" target="_blank">arXiv:2304.03442</a> · <a href="https://dl.acm.org/doi/10.1145/3586183.3606763" target="_blank">ACM DOI 10.1145/3586183.3606763</a><br>
+    Packer, Fang, Patil, Lin, Wooders &amp; Gonzalez, <em>MemGPT: Towards LLMs as Operating Systems</em>, 2023 — <a href="https://arxiv.org/abs/2310.08560" target="_blank">arXiv:2310.08560</a><br>
+    Zhang, Bo, Ma, Li, Chen, Dai, Zhu, Dong &amp; Wen, <em>A Survey on the Memory Mechanism of Large Language Model based Agents</em>, ACM TOIS 2025 — <a href="https://arxiv.org/abs/2404.13501" target="_blank">arXiv:2404.13501</a> · <a href="https://dl.acm.org/doi/10.1145/3748302" target="_blank">DOI 10.1145/3748302</a><br>
+    Wu, Liang, Zhang, Wang, Zhang, Guo, Tang &amp; Liu, <em>From Human Memory to AI Memory: A Survey on Memory Mechanisms in the Era of LLMs</em>, 2025 — <a href="https://arxiv.org/abs/2504.15965" target="_blank">arXiv:2504.15965</a><br>
+    Du, <em>Memory for Autonomous LLM Agents: Mechanisms, Evaluation, and Emerging Frontiers</em>, 2026 — <a href="https://arxiv.org/abs/2603.07670" target="_blank">arXiv:2603.07670</a><br>
+    Chroma Research, <em>Context Rot: How Increasing Input Tokens Impacts LLM Performance</em>, 2025 — <a href="https://www.trychroma.com/research/context-rot" target="_blank">trychroma.com/research/context-rot</a>
+    </p>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Bibliography (2/2)</div>
+  <h1>Engineering, frameworks &amp; tools</h1>
+  <div class="refs">
+    <p>
+    Anthropic, <em>Effective context engineering for AI agents</em>, 2025 — <a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents" target="_blank">anthropic.com/engineering/effective-context-engineering-for-ai-agents</a><br>
+    LangChain / LangGraph docs, <em>Persistence</em> (checkpointer &amp; store, short vs. long-term memory) — <a href="https://docs.langchain.com/oss/python/langgraph/persistence" target="_blank">docs.langchain.com/oss/python/langgraph/persistence</a><br>
+    LangChain, <em>New in Deep Agents v0.6</em>, 2026 — <a href="https://www.langchain.com/blog/deep-agents-0-6" target="_blank">langchain.com/blog/deep-agents-0-6</a><br>
+    <span class="mono">langchain-ai/deepagents</span> — <a href="https://github.com/langchain-ai/deepagents" target="_blank">github.com/langchain-ai/deepagents</a><br>
+    <span class="mono">langchain-ai/langmem</span> — <a href="https://github.com/langchain-ai/langmem" target="_blank">github.com/langchain-ai/langmem</a><br>
+    <span class="mono">letta-ai/letta</span> (successor to the MemGPT project) — <a href="https://github.com/letta-ai/letta" target="_blank">github.com/letta-ai/letta</a> · <a href="https://www.letta.com/blog" target="_blank">letta.com/blog</a><br>
+    Anthropic, <em>Memory tool</em> &amp; <em>Managing context on the Claude Developer Platform</em>, 2025-2026 — <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool" target="_blank">platform.claude.com/.../memory-tool</a> &middot; <a href="https://www.anthropic.com/news/context-management" target="_blank">anthropic.com/news/context-management</a><br>
+    Chhikara, Khant, Aryan, Singh &amp; Yadav, <em>Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory</em>, 2025 — <a href="https://arxiv.org/abs/2504.19413" target="_blank">arXiv:2504.19413</a><br>
+    Rasmussen et al., <em>Zep: A Temporal Knowledge Graph Architecture for Agent Memory</em>, 2025 — <a href="https://arxiv.org/abs/2501.13956" target="_blank">arXiv:2501.13956</a>
+    </p>
+  </div>
+</section>
+
+<section class="slide center">
+  <h1>Questions?</h1>
+  <p class="dim">Session 2 — in two weeks: LangGraph + DeepAgents in practice, with a notebook.</p>
+</section>
+
+</div>
+<script src="agent-memory/deck.js"></script>
+</body>
+</html>

@@ -8,9 +8,10 @@ show-avatar: True
 
 A two-session internal training for a Data Engineering / Data Science team on how memory is managed in LLM agents, from cognitive-science foundations (CoALA, MemGPT, Generative Agents) to concrete implementation with **LangGraph** and **DeepAgents**.
 
-* Session 1 — Theory: <a href="/docs/slides/agent-memory-part1-theory.html" target="_blank">slides</a>
-* Session 2 — Practice: <a href="/docs/slides/agent-memory-part2-practice.html" target="_blank">slides</a>
-* Hands-on notebook: <a href="https://github.com/achillethin/achillethin.github.io/blob/master/docs/code/agent_memory_langgraph_deepagents.ipynb" target="_blank">agent_memory_langgraph_deepagents.ipynb</a>
+* Session 1 — Theory: <a href="/docs/slides/agent-memory-part1-theory.html" target="_blank">slides (FR)</a> · <a href="/docs/slides/agent-memory-part1-theory-en.html" target="_blank">slides (EN)</a>
+* Session 2 — Practice: <a href="/docs/slides/agent-memory-part2-practice.html" target="_blank">slides (FR)</a> · <a href="/docs/slides/agent-memory-part2-practice-en.html" target="_blank">slides (EN)</a>
+* Hands-on notebook: <a href="https://github.com/achillethin/achillethin.github.io/blob/master/docs/code/agent_memory_langgraph_deepagents.ipynb" target="_blank">agent_memory_langgraph_deepagents.ipynb (FR)</a> · <a href="https://github.com/achillethin/achillethin.github.io/blob/master/docs/code/agent_memory_langgraph_deepagents-en.ipynb" target="_blank">English version</a>
+* Nestlé-internal variant (NesGen instead of a direct Anthropic key): <a href="https://github.com/achillethin/achillethin.github.io/tree/master/docs/code/nestle-nesgen" target="_blank">docs/code/nestle-nesgen/</a>
 {: style="text-align: justify"}
 
 <p>&nbsp;</p>

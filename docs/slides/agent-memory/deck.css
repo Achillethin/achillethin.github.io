@@ -209,6 +209,7 @@ table.cmp tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
 
 .small { font-size: 0.85rem; }
 .mono { font-family: var(--mono); }
+.diagram { margin: 1em 0; }
 
 a { color: var(--accent-2); text-decoration: none; }
 a:hover { text-decoration: underline; }

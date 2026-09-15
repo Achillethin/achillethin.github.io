@@ -11,3 +11,11 @@ ehthumbs.db
 Gemfile.lock
 
 beautiful-jekyll-theme-*.gem
+
+# local credentials / endpoints — never commit real values (see docs/code/nestle-nesgen/README.md)
+.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
