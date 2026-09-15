@@ -6,6 +6,10 @@ show-avatar: True
 
 ## Publications
 
+* A. Thin et al. "Differentiable Samplers for Deep Latent Variable Models", **Philosophical Transactions of the Royal Society A**, 2023.
+
+* A. Thin et al. "BR-SNIS: Bias Reduced Self-Normalized Importance Sampling", **Thirty-sixth Conference on Neural Information Processing Systems**, 2022.
+
 * A. Thin, Y. Janati El Idrissi, S. Le Corff, C. Ollion, E. Moulines, A. Doucet, A. Durmus, C. P. Robert. "NEO: Non Equilibrium Sampling on the Orbits of a Deterministic Transform", **Thirty-fifth Conference on Neural Information Processing Systems**, 2021. ([PDF](https://openreview.net/pdf?id=76tTYokjtG){:target="_blank"})([Code](https://github.com/Achillethin/NEO_non_equilibrium_sampling))
 
 * A. Thin, N. Kotelevskii, A. Doucet, A. Durmus, E. Moulines, E. Panov. "Monte Carlo Variational Auto-Encoders",  **Proceedings of the 38th International Conference on Machine Learning**, 2021.
@@ -16,6 +20,10 @@ show-avatar: True
 ([PDF](https://www.sciencedirect.com/science/article/pii/S2352179118302461){:target="_blank"})
 {: style="text-align: justify"}
 <p>&nbsp;</p>
+
+## Applied science
+
+* A. Thin et al. "A Validated Correction Method to Quantify Organic and Inorganic Carbon in Soils Using Rock-Eval Thermal Analysis", **Biogeosciences**, 2024.
 
 ## Pre prints
 
