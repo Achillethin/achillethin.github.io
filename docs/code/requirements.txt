@@ -1,0 +1,13 @@
+# Atelier "La mémoire des agents LLM" — dépendances du notebook
+# docs/code/agent_memory_langgraph_deepagents.ipynb
+#
+# Ces packages évoluent vite : revérifier les versions sur PyPI avant un run
+# en 2027+ plutôt que de recopier ces bornes indéfiniment.
+
+langgraph>=1.2,<2.0
+langchain>=1.4,<2.0
+langchain-anthropic>=0.4,<1.0
+langmem>=0.0.30
+deepagents>=0.7,<0.8
+numpy>=1.26
+jupyter>=1.0

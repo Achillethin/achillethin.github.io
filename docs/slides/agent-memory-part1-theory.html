@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mémoire des agents LLM — Partie 1 : Théorie</title>
+<link rel="stylesheet" href="agent-memory/deck.css">
+</head>
+<body>
+<div class="deck">
+
+<section class="slide title-slide active">
+  <div class="kicker">Data Engineering &amp; Data Science — Atelier interne</div>
+  <h1>La mémoire des agents LLM<br>Fondations &amp; architectures</h1>
+  <div class="subtitle">Partie 1/2 — Théorie : de la psychologie cognitive à LangGraph &amp; DeepAgents</div>
+  <div class="meta">
+    <strong>Durée visée :</strong> ~50 min + questions &nbsp;·&nbsp;
+    <strong>Session 2 :</strong> implémentation pratique (LangGraph, DeepAgents, notebook)<br>
+    Septembre 2026
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Agenda</div>
+  <h1>Deux sessions, un seul fil conducteur</h1>
+  <div class="grid-2">
+    <div class="card">
+      <h3>Session 1 — Théorie (aujourd'hui)</h3>
+      <ul>
+        <li>Pourquoi la mémoire est un <em>vrai</em> problème d'ingénierie, pas un détail</li>
+        <li>La taxonomie de référence (CoALA) : working / long-term memory</li>
+        <li>Comment on récupère, score, résume, oublie — avec un peu de maths</li>
+        <li>MemGPT / Letta, et le "context engineering" moderne (Anthropic)</li>
+        <li>Comparatif des grandes familles d'approches</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Session 2 — Pratique</h3>
+      <ul>
+        <li>Mémoire courte terme dans <span class="mono">LangGraph</span> (checkpointer, threads)</li>
+        <li>Mémoire long terme (<span class="mono">Store</span>, namespaces, recherche sémantique)</li>
+        <li>Mémoire pilotée par l'agent (<span class="mono">langmem</span>)</li>
+        <li><span class="mono">DeepAgents</span> : sous-agents, filesystem virtuel, backends</li>
+        <li>Démo live sur notebook + exercices pour l'équipe</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Motivation</div>
+  <h1>Pourquoi ce sujet, et pourquoi maintenant</h1>
+  <ul>
+    <li>Les agents qu'on construit aujourd'hui ne tiennent plus en <strong>un seul appel LLM</strong> : recherche multi-étapes, coding agents, assistants qui persistent entre sessions.</li>
+    <li>Le style "Claude Code" / <span class="mono">DeepAgents</span> — planification, sous-agents, systèmes de fichiers virtuels — est devenu le patron de référence pour les agents "longue durée" en 2025-2026.</li>
+    <li>Nos pipelines data (ingestion, exploration, reporting automatisé) ressemblent de plus en plus à ces agents : <strong>la question "où vit l'état, et pour combien de temps ?" devient centrale</strong>.</li>
+  </ul>
+  <div class="callout">
+    Objectif de cette session : vous donner un <strong>vocabulaire précis et partagé</strong> pour parler de mémoire d'agent, avant de rentrer dans le code en session 2.
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Le problème central</div>
+  <h1>La fenêtre de contexte est finie</h1>
+  <p>Tout ce qu'un LLM "sait" à un instant <em>t</em> tient dans un budget de tokens fixe, partagé entre :</p>
+  <div class="math-box">system prompt + schémas d'outils + historique de conversation + documents récupérés &nbsp;&le;&nbsp; N tokens</div>
+  <ul>
+    <li>Plus la conversation / la tâche s'allonge, plus ce budget se remplit — il faut choisir quoi garder.</li>
+    <li>Et ce n'est pas qu'un problème de <em>place</em> : l'étude <a href="https://www.trychroma.com/research/context-rot" target="_blank">« Context Rot »</a> de Chroma (2025) montre que la qualité des réponses de 18 modèles frontières <strong>se dégrade avec la longueur du contexte</strong>, parfois bien avant la limite nominale — même sur des tâches qui ne demandent pas de "tout retenir".</li>
+  </ul>
+  <div class="callout warn">« Empiler tout dans le contexte » n'est pas une stratégie de mémoire gratuite : c'est un choix qui a un coût de qualité, pas seulement de latence/coût $.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Définition</div>
+  <h1>Qu'est-ce que la « mémoire » d'un agent ?</h1>
+  <div class="callout good">
+    La mémoire d'un agent, c'est <strong>tout mécanisme qui permet de faire persister de l'information au-delà d'un seul passage dans le contexte du modèle</strong> — et de la ramener au bon moment.
+  </div>
+  <ul>
+    <li>Ce n'est <strong>pas</strong> les poids du modèle (ça, c'est ce qu'il a appris à l'entraînement — implicite, non modifiable à l'inférence).</li>
+    <li>C'est une question d'<strong>ingénierie logicielle</strong> : où stocker, comment indexer, quand écrire, quand relire, quand oublier.</li>
+    <li>Le champ académique a un nom pour l'architecture de référence : <strong>CoALA</strong>.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Cadre de référence</div>
+  <h1>CoALA — Cognitive Architectures for Language Agents</h1>
+  <p class="dim">Sumers, Yao, Narasimhan &amp; Griffiths — <a href="https://arxiv.org/abs/2309.02427" target="_blank">arXiv:2309.02427</a>, TMLR 2024</p>
+  <p>C'est la taxonomie que reprennent (implicitement ou explicitement) la quasi-totalité des frameworks modernes, LangGraph et DeepAgents inclus.</p>
+  <div class="grid-2">
+    <div class="card">
+      <h3><span class="badge short">Court terme</span> Working memory</h3>
+      <p>Le contenu <em>actif</em> du cycle de décision en cours : ce qui est littéralement dans la fenêtre de contexte à l'instant <em>t</em>. Volatile, non persisté par elle-même.</p>
+    </div>
+    <div class="card">
+      <h3><span class="badge long">Long terme</span> Long-term memory</h3>
+      <p>Ce qui survit au-delà d'un cycle : trois familles, empruntées à la psychologie cognitive (slide suivante).</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">CoALA — Long-term memory</div>
+  <h1>Trois familles de mémoire long terme</h1>
+  <div class="grid-3">
+    <div class="card">
+      <h3>Épisodique</h3>
+      <p>Traces d'événements passés : <em>« au tour 12, l'utilisateur a dit X, l'agent a fait Y »</em>. Mémoire autobiographique.</p>
+    </div>
+    <div class="card">
+      <h3>Sémantique</h3>
+      <p>Connaissances factuelles, généralisées à partir de l'expérience : <em>« le manager de l'utilisateur s'appelle Priya »</em>. Faits, ontologie.</p>
+    </div>
+    <div class="card">
+      <h3>Procédurale</h3>
+      <p>Le <em>comment faire</em> : compétences, règles, comportements appris — dans les poids du modèle (implicite), ou explicite (prompt, code, playbook).</p>
+    </div>
+  </div>
+  <div class="callout">Vous verrez cette même tripartition réapparaître, sous d'autres noms, dans LangGraph (Store) et DeepAgents (filesystem + skills).</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">CoALA — la boucle</div>
+  <h1>La boucle de décision : 4 actions, en interaction</h1>
+  <div class="timeline">
+    <div class="step"><div class="dot">1</div><div class="txt"><strong>Reasoning</strong> — produire du nouveau contenu en working memory (raisonner à partir de ce qu'on a déjà).</div></div>
+    <div class="step"><div class="dot">2</div><div class="txt"><strong>Retrieval</strong> — lire depuis la mémoire long terme vers la working memory (règles, recherche sparse, ou recherche dense/embeddings).</div></div>
+    <div class="step"><div class="dot">3</div><div class="txt"><strong>Learning</strong> — écrire en mémoire long terme : nouvel épisode, mise à jour d'un fait sémantique, nouvelle procédure.</div></div>
+    <div class="step"><div class="dot">4</div><div class="txt"><strong>Grounding</strong> (action externe) — agir sur / percevoir le monde extérieur : appels d'outils, environnement.</div></div>
+  </div>
+  <p class="dim small">C'est ce cycle <em>retrieval ↔ learning</em> autour d'une working memory limitée qui est, in fine, « le » problème d'ingénierie de la mémoire d'agent.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Retrieval</div>
+  <h1>Comment on récupère de la mémoire</h1>
+  <ul>
+    <li><strong>Basé sur des règles</strong> : filtres explicites (par utilisateur, par date, par type) — simple, prévisible, mais rigide.</li>
+    <li><strong>Recherche sparse</strong> : mots-clés / BM25 — bon rappel exact, faible sur le sens.</li>
+    <li><strong>Recherche dense (embeddings)</strong> : on encode chaque souvenir en vecteur à l'écriture, la requête en vecteur à la lecture, puis on classe par similarité. C'est le mécanisme dominant aujourd'hui — <strong>c'est du RAG appliqué au propre passé de l'agent</strong>, pas seulement à des documents externes.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Un peu de maths (1/3)</div>
+  <h1>La similarité cosinus</h1>
+  <p>La seule formule vraiment nécessaire pour comprendre la recherche dense : on mesure l'angle entre deux vecteurs, pas leur norme.</p>
+  <div class="math-box">cos(u, v) = (u · v) / (&#8214;u&#8214; &middot; &#8214;v&#8214;)</div>
+  <ul>
+    <li>Résultat entre -1 et 1 (en pratique, souvent entre 0 et 1 pour des embeddings de texte).</li>
+    <li>1 = même direction (même sens) ; 0 = aucun rapport.</li>
+    <li>On embed chaque souvenir <em>une fois</em>, à l'écriture — et on ré-embed seulement la requête à chaque lecture.</li>
+  </ul>
+  <div class="callout math">C'est tout ce qu'il faut retenir en maths pour 90% des systèmes de mémoire vectorielle en production.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Un modèle de référence</div>
+  <h1>Le score de récupération de « Generative Agents »</h1>
+  <p class="dim">Park, O'Brien, Cai, Morris, Liang &amp; Bernstein — Stanford/Google, UIST 2023 — <a href="https://arxiv.org/abs/2304.03442" target="_blank">arXiv:2304.03442</a></p>
+  <p>Chaque souvenir est un événement horodaté dans un <em>memory stream</em>. Pour décider quoi rappeler, on combine trois signaux :</p>
+  <div class="math-box">score = &alpha;<sub>r</sub>&middot;recency + &alpha;<sub>i</sub>&middot;importance + &alpha;<sub>v</sub>&middot;relevance</div>
+  <p class="small dim">(dans l'article, les trois &alpha; = 1 ; chaque terme est normalisé min-max dans [0,1] avant la somme, pour qu'aucun ne domine par pure question d'échelle)</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Un peu de maths (2/3)</div>
+  <h1>Recency : une décroissance exponentielle</h1>
+  <div class="math-box">recency = &gamma;<sup>&Delta;t</sup> &nbsp;&nbsp;(&gamma; = 0.995, &Delta;t en « heures » depuis le dernier accès)</div>
+  <ul>
+    <li>Un souvenir non consulté depuis ~140 « heures » de simulation a déjà perdu environ moitié de son poids.</li>
+    <li>Chaque <em>lecture</em> d'un souvenir remet son horloge à zéro — comme un cache LRU.</li>
+  </ul>
+  <h2>Importance &amp; relevance</h2>
+  <ul>
+    <li><strong>Importance</strong> : notée 1–10 <em>à l'écriture</em>, en demandant littéralement au LLM : <em>« quelle est la portée de cet événement ? »</em> (« se brosser les dents » → 2, « une rupture amoureuse » → 8).</li>
+    <li><strong>Relevance</strong> : la similarité cosinus (slide précédente) entre le souvenir et la situation actuelle.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Consolidation</div>
+  <h1>Reflection : de l'épisodique au sémantique</h1>
+  <ul>
+    <li>Sans consolidation, la mémoire long terme n'est qu'un <strong>journal brut qui grossit indéfiniment</strong> — de moins en moins exploitable.</li>
+    <li><strong>Reflection</strong> (Generative Agents) : déclenchée quand la somme des scores d'importance récents dépasse un seuil (150 dans l'article). Le LLM reçoit les ~100 événements les plus récents et génère 3 questions à haut niveau, puis synthétise des <strong>insights citant leurs sources</strong>.</li>
+    <li>Résultat : un <strong>arbre de réflexion</strong> — les feuilles sont des observations brutes, les nœuds internes des abstractions de plus en plus générales (des réflexions peuvent réfléchir sur d'autres réflexions).</li>
+  </ul>
+  <div class="callout">C'est l'ancêtre conceptuel direct de la « consolidation mémoire » / résumé hiérarchique qu'on retrouve dans presque tous les frameworks modernes (y compris LangGraph, session 2).</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Une architecture alternative</div>
+  <h1>MemGPT : l'agent comme système d'exploitation</h1>
+  <p class="dim">Packer, Fang, Patil, Lin, Wooders &amp; Gonzalez (UC Berkeley) — <a href="https://arxiv.org/abs/2310.08560" target="_blank">arXiv:2310.08560</a></p>
+  <div class="grid-2">
+    <div class="card">
+      <h3>Main context (≈ RAM)</h3>
+      <p>Ce qui tient dans la fenêtre du modèle : instructions système, fenêtre de messages récents, et des blocs de <strong>« core memory »</strong> éditables par le modèle lui-même.</p>
+    </div>
+    <div class="card">
+      <h3>External context (≈ disque)</h3>
+      <p>Tout le reste, hors fenêtre : <strong>archival memory</strong> (faits/documents, recherchés par embeddings) et <strong>recall memory</strong> (historique brut complet, recherchable).</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">MemGPT — mécanique</div>
+  <h1>Le modèle gère sa propre mémoire, via des outils</h1>
+  <ul>
+    <li>Le LLM décide <strong>lui-même</strong>, par des appels de fonction explicites, ce qui doit rester en RAM ou être paginé : <span class="mono">core_memory_append</span>, <span class="mono">core_memory_replace</span>, <span class="mono">archival_memory_search</span>, <span class="mono">archival_memory_insert</span>, <span class="mono">conversation_search</span>.</li>
+    <li>Des « interrupts » redonnent la main entre ces étapes d'auto-gestion mémoire et le tour de parole normal avec l'utilisateur.</li>
+    <li><strong>MemGPT → Letta (2026)</strong> : le nom « MemGPT » désigne aujourd'hui surtout le <em>patron de conception</em> ; <strong>Letta</strong> est le framework/produit open-source maintenu (<span class="mono">letta-ai/letta</span>), avec en 2026 des « Context Repositories » — une mémoire versionnée façon git pour les agents de code.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Comparatif</div>
+  <h1>Cinq familles, un seul spectre</h1>
+  <table class="cmp">
+    <tr><th>Approche</th><th>Complexité</th><th>Latence/coût</th><th>Fiabilité</th><th>Bon pour</th></tr>
+    <tr><td>Contexte brut (tout empiler)</td><td>Nulle</td><td>Croît avec l'historique</td><td class="bad">Se dégrade (Context Rot)</td><td>Prototypes très courts</td></tr>
+    <tr><td>RAG mémoire (embeddings)</td><td>Moyenne</td><td>Faible par tour</td><td>Bonne, mais rappel silencieusement incomplet</td><td>Personnalisation multi-session</td></tr>
+    <tr><td>MemGPT / Letta (paging OS)</td><td>Élevée</td><td>Appels outils supplémentaires</td><td>Dépend de l'auto-discipline du modèle</td><td>Session longue <em>et</em> multi-session</td></tr>
+    <tr><td>LangGraph Store</td><td>Faible si déjà sur LangGraph</td><td>Lookup peu coûteux</td><td class="good">Élevée, explicite, testable</td><td>Personnalisation par utilisateur/org</td></tr>
+    <tr><td>DeepAgents (filesystem + sous-agents)</td><td>Moyenne (harnais opinionated)</td><td>+ d'appels LLM, mais contexte parent réduit</td><td class="good">Forte pour tâches longues mono-session</td><td>Agents "longue tâche" (recherche, code)</td></tr>
+  </table>
+  <p class="small dim">Ces approches se combinent plus qu'elles ne s'excluent — DeepAgents, par exemple, s'appuie directement sur le Store de LangGraph (session 2).</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Le pont vers la pratique moderne</div>
+  <h1>« Context engineering » : le vocabulaire d'Anthropic</h1>
+  <p>Anthropic formalise le contexte comme une <strong>ressource finie à rendement décroissant</strong> — et nomme 4 techniques qu'on retrouve, productisées, dans DeepAgents.</p>
+  <p class="small dim">« Effective context engineering for AI agents » — anthropic.com/engineering</p>
+</section>
+
+<section class="slide">
+  <h1>Les 4 techniques de context engineering</h1>
+  <div class="grid-2">
+    <div class="card">
+      <h3>1. Compaction</h3>
+      <p>Résumer une conversation qui approche la limite de contexte, puis repartir avec le résumé (+ les fichiers les plus récemment consultés).</p>
+    </div>
+    <div class="card">
+      <h3>2. Note-taking structuré</h3>
+      <p>Un fichier de notes persistant <em>hors</em> de la fenêtre de contexte, pour survivre à une réinitialisation et reprendre où on en était.</p>
+    </div>
+    <div class="card">
+      <h3>3. Architectures multi-agents</h3>
+      <p>Un agent « chef d'orchestre » synthétise ; des sous-agents spécialisés travaillent avec leur <strong>propre</strong> fenêtre de contexte, propre et isolée.</p>
+    </div>
+    <div class="card">
+      <h3>4. Retrieval juste-à-temps</h3>
+      <p>Garder des références légères (chemins, identifiants) plutôt que le contenu complet, et ne le charger qu'au moment où on en a réellement besoin.</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Pourquoi ça marche</div>
+  <h1>Ce n'est pas qu'une intuition — c'est mesuré</h1>
+  <p>L'étude <a href="https://www.trychroma.com/research/context-rot" target="_blank">Context Rot</a> (Chroma, 2025) sur 18 modèles frontières montre :</p>
+  <ul>
+    <li>La performance <strong>se dégrade avec la longueur du contexte</strong>, y compris nettement sous la limite nominale.</li>
+    <li>Sur certaines tâches, les modèles font <strong>mieux</strong> sur un contexte long mais désordonné que sur un contexte long et logiquement cohérent — signe que « avoir tout sous la main » n'est pas neutre cognitivement pour le modèle.</li>
+  </ul>
+  <div class="callout warn">Conclusion pratique : compacter, isoler, et récupérer à la demande n'est pas une optimisation de coût — c'est aussi une optimisation de <strong>qualité</strong>.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Transition</div>
+  <h1>Où LangGraph et DeepAgents se situent</h1>
+  <div class="grid-2">
+    <div class="card">
+      <h3>LangGraph</h3>
+      <p><span class="badge short">Working memory</span> = <strong>Checkpointer</strong> + <span class="mono">thread_id</span> (une conversation).<br>
+      <span class="badge long">Long-term</span> = <strong>Store</strong> namespacé, avec recherche sémantique.</p>
+    </div>
+    <div class="card">
+      <h3>DeepAgents</h3>
+      <p>Implémente les 4 techniques de context engineering avec des primitives concrètes : <strong>sous-agents</strong> (quarantine), <strong>filesystem virtuel</strong> (offloading), <strong>backends</strong> pluggables (State/Store/Filesystem/Composite) qui réutilisent directement les primitives LangGraph.</p>
+    </div>
+  </div>
+  <p class="dim small">DeepAgents n'est pas un concurrent de LangGraph : c'est une couche opinionated <em>au-dessus</em> — sa contribution propre, c'est la métaphore filesystem + les sous-agents, pas un nouveau mécanisme de persistance.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Synthèse</div>
+  <h1>Ce qu'il faut retenir avant la session 2</h1>
+  <ul>
+    <li>La mémoire d'agent = un problème d'ingénierie autour d'une <strong>fenêtre de contexte finie</strong>, pas un détail d'implémentation.</li>
+    <li>Taxonomie CoALA : <strong>working memory</strong> (actif, volatile) vs <strong>long-term memory</strong> (épisodique / sémantique / procédurale).</li>
+    <li>Récupération = recherche (souvent par embeddings/cosinus), éventuellement pondérée par recency + importance + relevance.</li>
+    <li>Sans consolidation (reflection), la mémoire long terme devient un journal brut inexploitable.</li>
+    <li>Deux philosophies d'implémentation dominantes en 2026 : <strong>MemGPT/Letta</strong> (le modèle gère sa mémoire via des outils) et <strong>LangGraph/DeepAgents</strong> (l'ingénieur structure explicitement checkpointer / Store / filesystem / sous-agents).</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Bibliographie</div>
+  <h1>Pour aller plus loin</h1>
+  <div class="refs">
+    <p><strong>Fondations théoriques</strong><br>
+    Sumers et al., <em>CoALA: Cognitive Architectures for Language Agents</em>, TMLR 2024 — <a href="https://arxiv.org/abs/2309.02427" target="_blank">arXiv:2309.02427</a><br>
+    Park et al., <em>Generative Agents: Interactive Simulacra of Human Behavior</em>, UIST 2023 — <a href="https://arxiv.org/abs/2304.03442" target="_blank">arXiv:2304.03442</a><br>
+    Packer et al., <em>MemGPT: Towards LLMs as Operating Systems</em>, 2023 — <a href="https://arxiv.org/abs/2310.08560" target="_blank">arXiv:2310.08560</a><br>
+    Zhang et al., <em>A Survey on the Memory Mechanism of LLM-based Agents</em>, ACM TOIS 2025 — <a href="https://arxiv.org/abs/2404.13501" target="_blank">arXiv:2404.13501</a></p>
+    <p><strong>Ingénierie / production (2025-2026)</strong><br>
+    Anthropic, <em>Effective context engineering for AI agents</em> — anthropic.com/engineering<br>
+    Chroma Research, <em>Context Rot</em>, 2025 — <a href="https://www.trychroma.com/research/context-rot" target="_blank">trychroma.com/research/context-rot</a><br>
+    LangChain, <em>New in Deep Agents v0.6</em> — langchain.com/blog<br>
+    LangGraph docs — Persistence &amp; Memory — docs.langchain.com/oss/python/langgraph<br>
+    <span class="mono">langchain-ai/deepagents</span>, <span class="mono">langchain-ai/langmem</span>, <span class="mono">letta-ai/letta</span> (GitHub)</p>
+  </div>
+</section>
+
+<section class="slide center">
+  <h1>Questions ?</h1>
+  <p class="dim">Session 2 — dans deux semaines : LangGraph + DeepAgents en pratique, avec notebook.</p>
+</section>
+
+</div>
+<script src="agent-memory/deck.js"></script>
+</body>
+</html>

@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mémoire des agents LLM — Partie 2 : Pratique</title>
+<link rel="stylesheet" href="agent-memory/deck.css">
+</head>
+<body>
+<div class="deck">
+
+<section class="slide title-slide active">
+  <div class="kicker">Data Engineering &amp; Data Science — Atelier interne</div>
+  <h1>La mémoire des agents LLM<br>Implémentation avec LangGraph &amp; DeepAgents</h1>
+  <div class="subtitle">Partie 2/2 — Pratique : code, démo live, notebook</div>
+  <div class="meta">
+    <strong>Durée visée :</strong> ~50 min + questions &nbsp;·&nbsp;
+    <strong>Support :</strong> <span class="mono">docs/code/agent_memory_langgraph_deepagents.ipynb</span><br>
+    Septembre 2026
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Rappel — Session 1</div>
+  <h1>La grille de lecture qu'on va instrumenter</h1>
+  <div class="grid-2">
+    <div class="card">
+      <h3><span class="badge short">Court terme</span> Working memory</h3>
+      <p>→ <strong>Checkpointer LangGraph</strong> + <span class="mono">thread_id</span> : l'état d'une conversation, snapshotté à chaque étape.</p>
+    </div>
+    <div class="card">
+      <h3><span class="badge long">Long terme</span> Long-term memory</h3>
+      <p>→ <strong><span class="mono">Store</span> LangGraph</strong> : clé/valeur namespacé, cherchable par embeddings, indépendant du thread.</p>
+    </div>
+  </div>
+  <p class="dim small">DeepAgents ajoute deux choses par-dessus ces deux primitives : un <strong>filesystem virtuel</strong> (offloading de contexte) et des <strong>sous-agents</strong> (isolation de contexte) — pas un troisième système de persistance.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Setup</div>
+  <h1>Environnement — versions à épingler</h1>
+  <pre class="code"># requirements.txt (voir aussi docs/code/requirements.txt)
+langgraph>=1.2,&lt;2.0
+langchain>=1.4,&lt;2.0
+langmem>=0.0.30
+deepagents>=0.7,&lt;0.8
+python&gt;=3.11,&lt;4.0</pre>
+  <div class="callout warn">Ces trois packages évoluent vite (DeepAgents est passé de 0.2 à 0.7 en 2026, avec des changements de comportement — ex. le todo-list n'est plus activé par défaut depuis 0.7). <strong>Vérifiez la doc/PyPI au moment de l'exécution</strong>, ne recopiez pas ce deck dans un an sans revérifier.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">LangGraph — rappel express</div>
+  <h1>State, Graph, compile</h1>
+  <pre class="code">from langgraph.graph import StateGraph, MessagesState, START
+
+def call_model(state: MessagesState):
+    response = my_llm.invoke(state["messages"])
+    return {"messages": [response]}
+
+graph = StateGraph(MessagesState)
+graph.add_node("call_model", call_model)
+graph.add_edge(START, "call_model")
+app = graph.compile()   # &lt;- pas encore de mémoire ici</pre>
+  <p class="dim small">Sans checkpointer, chaque <span class="mono">invoke()</span> repart de zéro : aucune working memory ne survit entre deux appels.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Working memory</div>
+  <h1>Le checkpointer : mémoire courte terme, par thread</h1>
+  <pre class="code">from langgraph.checkpoint.memory import InMemorySaver
+# (canonique depuis les versions récentes ; "MemorySaver" reste un alias)
+
+checkpointer = InMemorySaver()               # dev — remplacer par PostgresSaver en prod
+app = graph.compile(checkpointer=checkpointer)
+
+config = {"configurable": {"thread_id": "user-42-session-1"}}
+app.invoke({"messages": [("user", "Bonjour, je suis Alex")]}, config=config)
+app.invoke({"messages": [("user", "Quel est mon prénom ?")]}, config=config)
+# -&gt; se souvient, car même thread_id</pre>
+  <ul>
+    <li>Un <span class="mono">thread_id</span> différent = une conversation totalement isolée.</li>
+    <li>En prod : <span class="mono">PostgresSaver</span> / <span class="mono">AsyncPostgresSaver</span> — scalable, résiste aux redémarrages.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Bonus du checkpointing</div>
+  <h1>Time travel, human-in-the-loop, tolérance aux pannes</h1>
+  <pre class="code">state_now = app.get_state(config)                     # dernier checkpoint
+state_then = app.get_state({                          # un checkpoint antérieur précis
+    **config,
+    "configurable": {**config["configurable"], "checkpoint_id": some_id},
+})
+app.update_state(config, {"messages": [...]})          # écrit un nouveau checkpoint
+                                                        # ("fork" — l'historique n'est pas détruit)</pre>
+  <ul>
+    <li>Le graphe peut <strong>se mettre en pause</strong> (interrupt) à un nœud, persister l'état, attendre un humain, puis reprendre exactement où il en était.</li>
+    <li>Rejouer depuis un ancien checkpoint <strong>ré-exécute</strong> les nœuds (nouveaux appels LLM/outils) — ce n'est pas juste un replay de sortie mise en cache.</li>
+    <li>Crash / redémarrage : on reprend le thread depuis son dernier checkpoint durable.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Garder la working memory sous contrôle</div>
+  <h1>Trimming &amp; résumé glissant</h1>
+  <p>Le checkpointer résout la persistance, pas le budget de tokens : un historique qui grossit finit par saturer le contexte.</p>
+  <ul>
+    <li><span class="mono">trim_messages</span> (<span class="mono">langchain_core.messages</span>) : coupe une <em>copie</em> des messages à un budget de tokens/messages avant l'appel LLM — ne modifie pas l'état persisté.</li>
+    <li>Pattern plus robuste : un <strong>résumé glissant</strong> des tours anciens (injecté comme message système) + les <em>k</em> derniers messages verbatim. Fidélité totale sur le récent, gist compressé sur le reste.</li>
+  </ul>
+  <div class="callout">C'est l'équivalent fonctionnel exact de la « compaction » vue en session 1 (vocabulaire Anthropic / Claude Code).</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Long-term memory</div>
+  <h1>Le Store : clé/valeur namespacé + recherche sémantique</h1>
+  <pre class="code">from langgraph.store.memory import InMemoryStore
+import uuid
+
+store = InMemoryStore(index={"embed": embed_fn, "dims": 1536})
+
+user_id = "user-42"
+namespace = (user_id, "memories")            # scoping par utilisateur/organisation
+
+store.put(namespace, str(uuid.uuid4()), {"fact": "Préfère des réponses concises, code d'abord"})
+store.put(namespace, str(uuid.uuid4()), {"fact": "Équipe data engineering, utilise Airflow"})
+
+hits = store.search(namespace, query="comment formater mes réponses pour cet utilisateur ?")
+# -&gt; classés par similarité d'embedding, strictement dans ce namespace</pre>
+  <p class="dim small">Les namespaces sont de simples tuples — on peut les imbriquer arbitrairement : <span class="mono">(org_id, user_id, "preferences")</span>.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Injection dans un nœud</div>
+  <h1>Le Store, injecté automatiquement</h1>
+  <pre class="code">from langgraph.store.base import BaseStore
+
+def personalize_node(state, *, store: BaseStore):
+    memories = store.search(
+        (state["user_id"], "memories"),
+        query=state["messages"][-1].content,
+    )
+    # -&gt; on injecte `memories` dans le prompt/message système
+    # avant l'appel LLM
+    ...</pre>
+  <p>Le système d'injection de dépendances de LangGraph fournit le <span class="mono">store</span> au nœud via l'annotation de type — sans que ce soit un paramètre visible du graphe.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Mémoire pilotée par l'agent</div>
+  <h1><span class="mono">langmem</span> : la mémoire comme outil</h1>
+  <pre class="code">from langmem import create_manage_memory_tool, create_search_memory_tool
+from langgraph.prebuilt import create_react_agent
+
+agent = create_react_agent(
+    "anthropic:claude-haiku-4-5-20251001",
+    tools=[
+        create_manage_memory_tool(namespace=("memories",)),
+        create_search_memory_tool(namespace=("memories",)),
+    ],
+    store=store,
+)
+# -&gt; l'agent décide LUI-MÊME, en cours de conversation,
+#    quand écrire ou chercher en mémoire</pre>
+  <div class="callout">C'est le même principe que les <span class="mono">core_memory_*</span> / <span class="mono">archival_memory_*</span> de MemGPT (session 1) — mais construit sur le Store LangGraph plutôt que sur un framework dédié.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Consolidation</div>
+  <h1>Traitement en arrière-plan (ne pas tout faire dans le hot path)</h1>
+  <ul>
+    <li><span class="mono">create_memory_manager</span> : extrait/consolide les faits notables d'une conversation (mémoire sémantique), sans bloquer le tour en cours.</li>
+    <li><span class="mono">create_memory_store_manager</span> + <span class="mono">ReflectionExecutor</span> : exécute ça <strong>de façon asynchrone/différée</strong> plutôt qu'après chaque message — évite le travail redondant en rafale, les décisions sur un contexte incomplet, et le gaspillage de tokens.</li>
+  </ul>
+  <div class="callout">Même distinction que « observation vs. reflection » (Generative Agents) ou « écriture paginée vs. consolidation archivale » (MemGPT) — trois frameworks, une seule idée sous-jacente.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Récap</div>
+  <h1>LangGraph memory — tableau de référence</h1>
+  <table class="cmp">
+    <tr><th>Concept</th><th>Mécanisme</th><th>Portée</th><th>Backend typique</th></tr>
+    <tr><td>Court terme</td><td>Checkpointer + <span class="mono">thread_id</span></td><td>une conversation</td><td><span class="mono">InMemorySaver</span> (dev), <span class="mono">PostgresSaver</span> (prod)</td></tr>
+    <tr><td>Long terme</td><td><span class="mono">Store</span> (put/search) + namespace</td><td>cross-thread, par utilisateur/org</td><td><span class="mono">InMemoryStore</span> (dev), <span class="mono">PostgresStore</span> (prod)</td></tr>
+    <tr><td>Mémoire-outil</td><td><span class="mono">langmem.create_manage_memory_tool</span> / <span class="mono">create_search_memory_tool</span></td><td>les deux</td><td>enveloppe un <span class="mono">Store</span></td></tr>
+    <tr><td>Consolidation</td><td><span class="mono">create_memory_manager</span> / <span class="mono">ReflectionExecutor</span></td><td>long terme</td><td>enveloppe un <span class="mono">Store</span></td></tr>
+  </table>
+</section>
+
+<section class="slide">
+  <div class="kicker">Transition</div>
+  <h1>DeepAgents : au-dessus de LangGraph, pas à côté</h1>
+  <ul>
+    <li><span class="mono">deepagents</span> (GitHub <span class="mono">langchain-ai/deepagents</span>) : « the batteries-included agent harness », explicitement inspiré de <strong>Claude Code</strong>.</li>
+    <li>Construit sur <span class="mono">create_agent</span> de LangChain (donc sur LangGraph) : mêmes briques, mais avec filesystem, sous-agents, gestion de contexte et skills <strong>fournis par défaut</strong>.</li>
+    <li>Trois principes affichés par le projet : <strong>opinionated</strong> (bons défauts pour du travail long/multi-étapes), <strong>extensible</strong> (pas besoin de forker), <strong>model-agnostic</strong>.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Primitive 1</div>
+  <h1>Planification : le todo-list</h1>
+  <pre class="code">from deepagents import create_deep_agent
+from deepagents.middleware import TodoListMiddleware
+
+agent = create_deep_agent(
+    model="anthropic:claude-sonnet-4-5",
+    middleware=[TodoListMiddleware()],   # opt-in depuis deepagents 0.7 (n'est plus fourni par défaut)
+)</pre>
+  <p>L'agent écrit et met à jour explicitement une checklist structurée de sous-tâches (avec statut par tâche), plutôt que de garder le plan implicitement dans son raisonnement — calqué directement sur le comportement de Claude Code.</p>
+  <div class="callout warn">Changement de comportement notable en 2026 : si vous suivez un tutoriel antérieur à la 0.7, il suppose ce middleware actif par défaut — ce n'est plus le cas.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Primitive 2</div>
+  <h1>Sous-agents : la quarantaine de contexte</h1>
+  <pre class="code">research_subagent = {
+    "name": "web-researcher",
+    "description": "Mène une recherche web approfondie sur une question précise "
+                   "et retourne un résumé condensé.",
+    "system_prompt": "Tu es un assistant de recherche focalisé. Investigue "
+                      "en profondeur, puis rapporte uniquement tes conclusions.",
+    "tools": [web_search_tool],
+}
+
+agent = create_deep_agent(
+    model="anthropic:claude-sonnet-4-5",
+    subagents=[research_subagent],   # + un sous-agent "general-purpose" est toujours dispo
+)</pre>
+  <p>Le sous-agent tourne dans <strong>sa propre fenêtre de contexte</strong> ; seul son <em>rapport final condensé</em> revient dans le contexte de l'agent parent — aucun bruit d'appels d'outils intermédiaires ne s'y déverse.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Primitive 3</div>
+  <h1>Filesystem virtuel : l'offloading de contexte</h1>
+  <ul>
+    <li>Outils <span class="mono">ls</span>, <span class="mono">read_file</span>, <span class="mono">write_file</span>, <span class="mono">edit_file</span>, <span class="mono">glob</span>, <span class="mono">grep</span> — une <em>surface</em> de fichiers manipulée par appels d'outils, qui ne touche pas le disque réel par défaut.</li>
+    <li>Un gros résultat d'outil (recherche web volumineuse, fichier long, résultat de requête) est <strong>écrit dans un fichier virtuel</strong> plutôt que déversé dans l'historique de messages — l'agent ne relit ensuite que la portion utile.</li>
+  </ul>
+  <div class="callout">C'est le mécanisme concret du « retrieval juste-à-temps » et du « note-taking structuré » vus en session 1 — plus une méthode qu'un simple utilitaire.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Où vivent ces fichiers ?</div>
+  <h1>Les backends : le point de jonction avec LangGraph</h1>
+  <table class="cmp">
+    <tr><th>Backend</th><th>Persistance</th><th>Équivalent CoALA / LangGraph</th></tr>
+    <tr><td><span class="mono">StateBackend</span> (défaut)</td><td>éphémère, dans l'état du thread courant</td><td>working memory / checkpointer</td></tr>
+    <tr><td><span class="mono">StoreBackend</span></td><td>persisté via un <span class="mono">Store</span> LangGraph</td><td>long-term memory / <span class="mono">Store</span></td></tr>
+    <tr><td><span class="mono">FilesystemBackend</span></td><td>disque local réel (dev)</td><td>—</td></tr>
+    <tr><td><span class="mono">CompositeBackend</span></td><td>routeur par préfixe de chemin</td><td>combine les deux ci-dessus</td></tr>
+  </table>
+  <p class="dim small">C'est le point le plus important de tout le talk : <strong>le filesystem de DeepAgents n'est pas un 3ᵉ mécanisme de persistance — c'est une façade sur le <span class="mono">Store</span> LangGraph</strong>.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Code</div>
+  <h1>Router : ce qui doit survivre, et ce qui ne doit pas</h1>
+  <pre class="code">from deepagents import create_deep_agent
+from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
+from langgraph.store.memory import InMemoryStore
+
+store = InMemoryStore()
+
+backend = lambda rt: CompositeBackend(
+    default=StateBackend(rt),                 # brouillon éphémère, scope = thread
+    routes={"/memories/": StoreBackend(rt)},   # tout sous /memories/ survit entre sessions
+)
+
+agent = create_deep_agent(model="anthropic:claude-sonnet-4-5", backend=backend, store=store)
+
+agent.invoke({"messages": [(
+    "user",
+    "Recherche le modèle mémoire de LangGraph et écris tes conclusions "
+    "dans /memories/langgraph_notes.md",
+)]})</pre>
+</section>
+
+<section class="slide">
+  <div class="kicker">Démo (notebook)</div>
+  <h1>Vérifier la persistance cross-session</h1>
+  <ol>
+    <li>Invoquer l'agent avec <span class="mono">thread_id="A"</span>, lui faire écrire <span class="mono">/memories/notes.md</span>.</li>
+    <li>Invoquer avec <span class="mono">thread_id="B"</span> (même <span class="mono">store</span>) : demander de <span class="mono">read_file("/memories/notes.md")</span> → <strong>ça fonctionne</strong>.</li>
+    <li>Refaire l'essai avec un fichier <em>hors</em> <span class="mono">/memories/</span> (donc sur <span class="mono">StateBackend</span>) → il a disparu dans le thread B.</li>
+  </ol>
+  <div class="callout good">Ce contraste, exécuté en live sur le notebook, est la meilleure façon de faire « voir » la différence court terme / long terme à l'équipe.</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Bonus</div>
+  <h1>Skills : le chargement à la demande</h1>
+  <ul>
+    <li><span class="mono">SkillsMiddleware</span> (étendu en DeepAgents 0.6) : des comportements réutilisables, chargés <strong>à la demande</strong>.</li>
+    <li>Seule une <em>métadonnée</em> (nom + description courte) reste toujours dans le prompt système ; le contenu complet n'est chargé que si l'agent juge la skill pertinente pour la tâche en cours.</li>
+    <li>C'est une technique de gestion de contexte à part entière : on ne paie le coût en tokens d'une capacité que si elle est réellement utilisée ce tour-ci.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Passage en production</div>
+  <h1>Ce qui change entre le prototype et la prod</h1>
+  <ul>
+    <li><strong>Backends persistants</strong> : <span class="mono">PostgresSaver</span> / <span class="mono">PostgresStore</span> plutôt que les variantes <span class="mono">InMemory*</span> — nécessaires dès qu'on redémarre un process ou qu'on scale horizontalement.</li>
+    <li><strong>Observabilité</strong> : tracer les appels de sous-agents (LangSmith ou équivalent) pour vérifier <em>ce qui</em> ne revient pas dans le contexte parent — sinon l'isolation de contexte devient une boîte noire à débugger.</li>
+    <li><strong>Sécurité</strong> : le <span class="mono">FilesystemBackend</span> a un mode « virtuel » qui bloque la traversée de chemin (<span class="mono">../</span>, <span class="mono">~/</span>) — <strong>ne jamais exposer l'accès disque réel sans ce garde-fou</strong> dans un contexte serveur.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Guide de décision</div>
+  <h1>Quoi choisir, pour quel besoin</h1>
+  <div class="timeline">
+    <div class="step"><div class="dot">1</div><div class="txt"><strong>Une tâche longue, mono-session</strong> (recherche approfondie, gros job de code/données) → DeepAgents : sous-agents + filesystem virtuel (backend par défaut).</div></div>
+    <div class="step"><div class="dot">2</div><div class="txt"><strong>Personnalisation multi-session</strong> (préférences utilisateur, faits qui doivent survivre) → LangGraph <span class="mono">Store</span> namespacé, avec ou sans <span class="mono">langmem</span>.</div></div>
+    <div class="step"><div class="dot">3</div><div class="txt"><strong>Les deux à la fois</strong> → DeepAgents avec un <span class="mono">CompositeBackend</span> routant une partie de l'espace fichiers vers un <span class="mono">StoreBackend</span> — elles se composent, elles ne s'excluent pas.</div></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Passer au notebook</div>
+  <h1>Plan du notebook d'accompagnement</h1>
+  <p class="mono small">docs/code/agent_memory_langgraph_deepagents.ipynb</p>
+  <ol>
+    <li>Similarité cosinus « from scratch » (numpy) — pas de framework, juste l'intuition.</li>
+    <li>Score de récupération façon Generative Agents (recency + importance + relevance) sur des souvenirs jouets.</li>
+    <li>LangGraph — checkpointer, threads isolés, time travel.</li>
+    <li>LangGraph — Store, namespaces, recherche sémantique, mémoire pilotée par l'agent (<span class="mono">langmem</span>).</li>
+    <li>DeepAgents — sous-agent de recherche, filesystem virtuel, persistance cross-session via <span class="mono">StoreBackend</span>.</li>
+  </ol>
+</section>
+
+<section class="slide">
+  <div class="kicker">Pour l'équipe</div>
+  <h1>Exercices proposés (après la session)</h1>
+  <ul>
+    <li>Remplacer <span class="mono">InMemoryStore</span> par un <span class="mono">PostgresStore</span> sur une base locale, et vérifier que la mémoire survit à un redémarrage du kernel.</li>
+    <li>Ajouter un second sous-agent DeepAgents spécialisé (ex. « analyste SQL ») et observer, via les traces, ce qui revient — ou pas — dans le contexte parent.</li>
+    <li>Sur un cas réel de l'équipe (ex. un agent de reporting), identifier quel type de mémoire (court terme / long terme / les deux) résoudrait le problème actuel.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Récap final</div>
+  <h1>Une seule carte mentale à garder</h1>
+  <div class="callout good">
+    <strong>Working ↔ long-term</strong> (CoALA) devient <strong>checkpointer/thread ↔ Store/namespace</strong> (LangGraph), et DeepAgents ajoute par-dessus <strong>l'isolation</strong> (sous-agents) et <strong>l'offloading</strong> (filesystem virtuel) — les 4 techniques de context engineering d'Anthropic, avec un nom de classe Python pour chacune.
+  </div>
+</section>
+
+<section class="slide center">
+  <h1>Questions ?</h1>
+  <p class="dim">Notebook, decks et bibliographie : <span class="mono">docs/</span> de ce site.</p>
+</section>
+
+</div>
+<script src="agent-memory/deck.js"></script>
+</body>
+</html>
