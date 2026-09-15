@@ -29,7 +29,14 @@ Previously, after 2 years of prépa at Stanislas, Paris, I got into the École p
 
 I am very interested nowadays in real world applications, especially in the agricultural and agronomic fields, and I keep a few side projects running on my own time:
 
-* **Fermentation control** — a soft-sensor + model-predictive-control POC for fermentation processes (mechanistic Monod kinetics combined with ML soft sensors), aimed first at wine fermentation, with precision fermentation / alternative proteins as a secondary target.
+* **Agriculture** — a cluster of tools for French farmers:
+  * *Agri Helper*: crop yield forecasts with uncertainty (Monte Carlo weather simulation + quantile regression, P10/P50/P90), plus crop-health tools such as computer-vision detection of weeds and thistles.
+  * *Culture recommender* (AgriTransition 2050): decision support for crop-transition choices under climate change.
+  * *Agricultural foundation model*: an early-stage self-supervised model for agricultural parcels, built on Sentinel-2 imagery, French RPG/PAC parcel data, ERA5-Land weather and SoilGrids.
+* **Fermentation** — from process control to knowledge tooling:
+  * *Fermentation control*: a soft-sensor + model-predictive-control POC (mechanistic Monod kinetics combined with ML soft sensors), aimed first at wine fermentation, with precision fermentation / alternative proteins as a secondary target.
+  * *Fermentation digital twin & FermentGraph*: a data and knowledge scaffold linking ingredients, flavour compounds and microbes across public databases, feeding an evidence-ranking workbench for fermentation R&D.
+  * *FermentTrack*: a batch-tracking and sensor-integration app for home fermenters, built on top of FermentGraph.
 * **Distributional self-supervised learning** — research on joint-embedding self-supervised methods that learn distribution-valued (rather than point) representations, combining ideas from variational inference and Bayesian neural networks with modern SSL (JEPA-style architectures).
 * **Personalized nutrition** — an ongoing project exploring data-driven, individualized nutrition recommendations.
 
