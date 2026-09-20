@@ -36,7 +36,7 @@ I am very interested nowadays in real world applications, especially in the agri
 * **Fermentation** — from process control to knowledge tooling:
   * *Fermentation control*: a soft-sensor + model-predictive-control POC (mechanistic Monod kinetics combined with ML soft sensors), aimed first at wine fermentation, with precision fermentation / alternative proteins as a secondary target.
   * *Fermentation digital twin & FermentGraph*: a data and knowledge scaffold linking ingredients, flavour compounds and microbes across public databases, feeding an evidence-ranking workbench for fermentation R&D.
-  * *FermentTrack*: a batch-tracking and sensor-integration app for home fermenters, built on top of FermentGraph.
+  * [*FermentTrack*](https://github.com/Achillethin/FermentTrack): a batch-tracking and sensor-integration app for home fermenters, standalone for now with FermentGraph integration planned; backend live, UI in progress.
 * **Distributional self-supervised learning** — research on joint-embedding self-supervised methods that learn distribution-valued (rather than point) representations, combining ideas from variational inference and Bayesian neural networks with modern SSL (JEPA-style architectures).
 * **Personalized nutrition** — an ongoing project exploring data-driven, individualized nutrition recommendations.
 
